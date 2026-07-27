@@ -97,6 +97,7 @@ function createClient(
     throw new Error("Read-only workspace test called createTask unexpectedly.");
   },
   setTaskStatus: SmartSpaceClient["setTaskStatus"] = unexpectedSetTaskStatus,
+  createCategory: SmartSpaceClient["createCategory"] = unexpectedCreateCategory,
 ): SmartSpaceClient {
   return {
     listCategories: vi.fn(async () => categories),
@@ -108,7 +109,7 @@ function createClient(
     moveTask: unexpectedMoveTask,
     reorderTasks: unexpectedReorderTasks,
     deleteTask: unexpectedDeleteTask,
-    createCategory: unexpectedCreateCategory,
+    createCategory,
     renameCategory: unexpectedRenameCategory,
     reorderCategories: unexpectedReorderCategories,
     deleteCategory: unexpectedDeleteCategory,
@@ -610,6 +611,203 @@ describe("App task workspace lifecycle", () => {
 
     expect(createTaskCommand).not.toHaveBeenCalled();
     expect(await screen.findByRole("alert")).not.toBeNull();
+  });
+
+  it("opens and cancels the category form with keyboard or button", async () => {
+    render(createElement(App, { client: createClient() }));
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+
+    const trigger = screen.getByRole("button", { name: "Add category" });
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("Category name");
+    expect(document.activeElement).toBe(input);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.change(input, { target: { value: "Discarded by Escape" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByLabelText("Category name")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByLabelText("Category name"), {
+      target: { value: "Discarded by button" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("Category name")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("creates a category once and exposes the returned DTO in storage order", async () => {
+    const pendingCreate = createDeferred<CategoryDto>();
+    const createCategory = vi.fn(() => pendingCreate.promise);
+    const client = createClient([], undefined, undefined, createCategory);
+
+    render(createElement(App, { client }));
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    const trigger = screen.getByRole("button", { name: "Add category" });
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByLabelText("Category name"), {
+      target: { value: "  New category  " },
+    });
+    const form = screen.getByRole("form", { name: "Add category" });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(createCategory).toHaveBeenCalledTimes(1);
+    expect(createCategory).toHaveBeenCalledWith({ name: "  New category  " });
+    expect(
+      (screen.getByRole("button", { name: "Adding..." }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    const createdCategory: CategoryDto = {
+      id: "00000000-0000-0000-0000-000000000004",
+      name: "New category",
+      position: 1,
+      kind: "user",
+    };
+    await act(async () => {
+      pendingCreate.resolve(createdCategory);
+      await pendingCreate.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Category added.",
+    );
+    expect(screen.queryByLabelText("Category name")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    const categoryNames = Array.from(
+      (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+      (option) => option.text,
+    );
+    expect(categoryNames).toEqual([
+      "Inbox",
+      "New category",
+      "Work",
+      "Personal",
+    ]);
+    const navigationText = screen.getByRole("navigation", {
+      name: "Task categories",
+    }).textContent;
+    expect(navigationText?.indexOf("New category")).toBeLessThan(
+      navigationText?.indexOf("Work") ?? -1,
+    );
+    expect(
+      screen.getByRole("button", { name: "New category 0" }),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    [
+      "invalid_input",
+      "Enter a valid category name.",
+      new SmartSpaceCommandError("invalid_input", "invalid category"),
+    ],
+    [
+      "duplicate category",
+      "A category with this name already exists.",
+      new SmartSpaceCommandError(
+        "duplicate_category_name",
+        "duplicate category",
+      ),
+    ],
+    [
+      "unknown failure",
+      "Category could not be added. Try again.",
+      new Error("offline"),
+    ],
+  ])(
+    "retains the category draft after a %s error",
+    async (_case, message, error) => {
+      const createCategory = vi.fn(async () => {
+        throw error;
+      });
+      render(
+        createElement(App, {
+          client: createClient([], undefined, undefined, createCategory),
+        }),
+      );
+      expect(await screen.findByText("No tasks yet")).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Add category" }));
+      fireEvent.change(screen.getByLabelText("Category name"), {
+        target: { value: "Retained draft" },
+      });
+      fireEvent.submit(screen.getByRole("form", { name: "Add category" }));
+
+      expect((await screen.findByRole("alert")).textContent).toContain(message);
+      expect(
+        (screen.getByLabelText("Category name") as HTMLInputElement).value,
+      ).toBe("Retained draft");
+      expect(
+        (screen.getByRole("button", { name: "Add" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    },
+  );
+
+  it("rejects a blank category without calling the client", async () => {
+    const createCategory = vi.fn<SmartSpaceClient["createCategory"]>();
+    render(
+      createElement(App, {
+        client: createClient([], undefined, undefined, createCategory),
+      }),
+    );
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add category" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Add category" }));
+
+    expect(createCategory).not.toHaveBeenCalled();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Enter a category name.",
+    );
+  });
+
+  it("ignores a pending category create after the client session changes", async () => {
+    const pendingCreate = createDeferred<CategoryDto>();
+    const staleCreateCategory = vi.fn(() => pendingCreate.promise);
+    const staleClient = createClient(
+      [],
+      undefined,
+      undefined,
+      staleCreateCategory,
+    );
+    const currentClient = createClient([
+      createTask(
+        "10000000-0000-0000-0000-000000000023",
+        "Current category session",
+        inboxId,
+      ),
+    ]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add category" }));
+    fireEvent.change(screen.getByLabelText("Category name"), {
+      target: { value: "Stale category" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Add category" }));
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current category session")).not.toBeNull();
+
+    await act(async () => {
+      pendingCreate.resolve({
+        id: "00000000-0000-0000-0000-000000000005",
+        name: "Stale category",
+        position: 3,
+        kind: "user",
+      });
+      await pendingCreate.promise;
+    });
+
+    expect(screen.queryByText("Stale category")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      Array.from(
+        (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+        (option) => option.text,
+      ),
+    ).toEqual(["Inbox", "Work", "Personal"]);
   });
 
   it("completes once, then reopens the same task from returned DTOs", async () => {

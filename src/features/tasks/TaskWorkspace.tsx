@@ -9,6 +9,7 @@ import {
 import {
   SmartSpaceCommandError,
   type CategoryDto,
+  type CreateCategoryInput,
   type CreateTaskInput,
   type SetTaskStatusInput,
   type TaskDto,
@@ -333,12 +334,190 @@ function QuickAddTask({
   );
 }
 
+function getCreateCategoryErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "invalid_input") {
+      return "Enter a valid category name.";
+    }
+
+    if (error.code === "duplicate_category_name") {
+      return "A category with this name already exists.";
+    }
+  }
+
+  return "Category could not be added. Try again.";
+}
+
+function CreateCategory({
+  onCreateCategory,
+}: {
+  readonly onCreateCategory: (
+    input: CreateCategoryInput,
+  ) => Promise<CategoryDto>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<CreateFeedback>();
+  const submittingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const shouldRestoreFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      inputRef.current?.focus();
+    } else if (shouldRestoreFocusRef.current) {
+      shouldRestoreFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  function closeForm() {
+    if (submittingRef.current) {
+      return;
+    }
+
+    shouldRestoreFocusRef.current = true;
+    setName("");
+    setFeedback(undefined);
+    setIsOpen(false);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (submittingRef.current) {
+      return;
+    }
+
+    if (name.trim().length === 0) {
+      setFeedback({
+        kind: "error",
+        message: "Enter a category name.",
+      });
+      return;
+    }
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setFeedback(undefined);
+
+    try {
+      await onCreateCategory({ name });
+      shouldRestoreFocusRef.current = true;
+      setName("");
+      setFeedback({ kind: "success", message: "Category added." });
+      setIsOpen(false);
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getCreateCategoryErrorMessage(error),
+      });
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="category-creator">
+      <div className="flex items-center justify-between gap-1 px-2 pb-2">
+        <p className="min-w-0 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
+          Categories
+        </p>
+        <button
+          aria-controls="create-category-form"
+          aria-expanded={isOpen}
+          aria-label="Add category"
+          className="category-add-trigger"
+          onClick={() => {
+            setFeedback(undefined);
+            setIsOpen(true);
+          }}
+          ref={triggerRef}
+          title="Add category"
+          type="button"
+        >
+          <span aria-hidden="true">+</span>
+        </button>
+      </div>
+      {isOpen ? (
+        <form
+          aria-label="Add category"
+          className="category-create-form"
+          id="create-category-form"
+          onSubmit={handleSubmit}
+        >
+          <label className="sr-only" htmlFor="create-category-name">
+            Category name
+          </label>
+          <input
+            className="category-name-input"
+            disabled={isSubmitting}
+            id="create-category-name"
+            onChange={(event) => {
+              setName(event.target.value);
+              if (feedback?.kind === "error") {
+                setFeedback(undefined);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeForm();
+              }
+            }}
+            placeholder="Category name"
+            ref={inputRef}
+            type="text"
+            value={name}
+          />
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <button
+              className="category-create-submit"
+              disabled={isSubmitting || name.trim().length === 0}
+              type="submit"
+            >
+              {isSubmitting ? "Adding..." : "Add"}
+            </button>
+            <button
+              className="category-create-cancel"
+              disabled={isSubmitting}
+              onClick={closeForm}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
+      {feedback === undefined ? null : (
+        <p
+          className={
+            feedback.kind === "error"
+              ? "category-create-feedback text-[var(--status-danger)]"
+              : "category-create-feedback text-[var(--status-success)]"
+          }
+          role={feedback.kind === "error" ? "alert" : "status"}
+        >
+          {feedback.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function TaskWorkspace({
   data,
+  onCreateCategory,
   onCreateTask,
   onSetTaskStatus,
 }: {
   readonly data: TaskWorkspaceData;
+  readonly onCreateCategory?: (
+    input: CreateCategoryInput,
+  ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
@@ -420,9 +599,15 @@ export function TaskWorkspace({
           <span className="nav-count">{taskCounts.completed}</span>
         </button>
 
-        <p className="mt-5 px-2 pb-2 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
-          Categories
-        </p>
+        <div className="mt-5">
+          {onCreateCategory === undefined ? (
+            <p className="px-2 pb-2 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
+              Categories
+            </p>
+          ) : (
+            <CreateCategory onCreateCategory={onCreateCategory} />
+          )}
+        </div>
         <ul className="space-y-0.5">
           {data.categories.map((category) => (
             <li key={category.id}>

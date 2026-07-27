@@ -105,6 +105,96 @@ button {
   outline-offset: 2px;
 }
 
+.category-add-trigger:focus-visible,
+.category-name-input:focus-visible,
+.category-create-submit:focus-visible,
+.category-create-cancel:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.category-add-trigger {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  place-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.category-add-trigger:hover,
+.category-add-trigger[aria-expanded="true"] {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.category-create-form {
+  margin: 0 0.25rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  padding: 0.5rem;
+}
+
+.category-name-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 1.875rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--surface-raised);
+  padding: 0.25rem 0.375rem;
+  color: var(--text-primary);
+  font-size: 0.6875rem;
+}
+
+.category-name-input::placeholder {
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+.category-create-submit,
+.category-create-cancel {
+  min-width: 0;
+  min-height: 1.75rem;
+  padding: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.category-create-submit {
+  border: 1px solid var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--text-on-accent);
+}
+
+.category-create-cancel {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.category-name-input:disabled,
+.category-create-submit:disabled,
+.category-create-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.category-create-feedback {
+  margin: 0 0.5rem 0.5rem;
+  overflow-wrap: anywhere;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+
 .nav-count {
   min-width: 1.25rem;
   text-align: right;

@@ -8,6 +8,8 @@ import { APP_NAME } from "./lib/app-meta";
 import {
   SmartSpaceCommandError,
   smartSpaceClient,
+  type CategoryDto,
+  type CreateCategoryInput,
   type CreateTaskInput,
   type SetTaskStatusInput,
   type SmartSpaceClient,
@@ -67,6 +69,20 @@ function insertTaskInStorageOrder(
   });
 
   return { ...data, tasks };
+}
+
+function insertCategoryInStorageOrder(
+  data: TaskWorkspaceData,
+  createdCategory: CategoryDto,
+): TaskWorkspaceData {
+  const categories = [...data.categories];
+  const insertionIndex = Math.max(
+    0,
+    Math.min(createdCategory.position, categories.length),
+  );
+  categories.splice(insertionIndex, 0, createdCategory);
+
+  return { ...data, categories };
 }
 
 function replaceTask(
@@ -165,12 +181,16 @@ function ApplicationWorkspace() {
 export function WorkspaceBody({
   workspace,
   onRetry,
+  onCreateCategory,
   onCreateTask,
   onSetTaskStatus,
   loadingRegionRef,
 }: {
   readonly workspace: WorkspaceState;
   readonly onRetry: () => void;
+  readonly onCreateCategory?: (
+    input: CreateCategoryInput,
+  ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
@@ -186,6 +206,7 @@ export function WorkspaceBody({
       {workspace.status === "ready" ? (
         <TaskWorkspace
           data={workspace.data}
+          onCreateCategory={onCreateCategory}
           onCreateTask={onCreateTask}
           onSetTaskStatus={onSetTaskStatus}
         />
@@ -250,6 +271,22 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     [client],
   );
 
+  const createCategory = useCallback(
+    async (input: CreateCategoryInput) => {
+      const createdCategory = await client.createCategory(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: insertCategoryInStorageOrder(current.data, createdCategory),
+            }
+          : current,
+      );
+      return createdCategory;
+    },
+    [client],
+  );
+
   const setTaskStatus = useCallback(
     async (input: SetTaskStatusInput) => {
       const updatedTask = await client.setTaskStatus(input);
@@ -283,6 +320,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
 
       <WorkspaceBody
         loadingRegionRef={loadingRegionRef}
+        onCreateCategory={createCategory}
         onCreateTask={createTask}
         onSetTaskStatus={setTaskStatus}
         onRetry={() => {
