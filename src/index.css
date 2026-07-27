@@ -97,6 +97,7 @@ button {
 
 .nav-item:focus-visible,
 .retry-button:focus-visible,
+.task-status-button:focus-visible,
 .quick-task-input:focus-visible,
 .quick-task-select:focus-visible,
 .quick-task-submit:focus-visible {
@@ -115,6 +116,46 @@ button {
 .task-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 4.25rem;
+}
+
+.task-status-button {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  place-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.task-status-button::before {
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 9999px;
+  background: var(--surface-raised);
+  content: "";
+}
+
+.task-status-button[aria-pressed="true"]::before {
+  border: 4px solid var(--accent-strong);
+}
+
+.task-status-button:hover:not(:disabled)::before {
+  border-color: var(--accent-strong);
+}
+
+.task-status-button:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+.task-status-button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .quick-task-input,
@@ -205,6 +246,10 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .task-status-button {
+    transition: none;
+  }
+
   .skeleton-line {
     animation: none;
     opacity: 0.7;

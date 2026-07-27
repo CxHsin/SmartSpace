@@ -55,12 +55,13 @@ function createClient(
   createTask: SmartSpaceClient["createTask"] = async () => {
     throw new Error("Read-only workspace test called createTask unexpectedly.");
   },
+  setTaskStatus: SmartSpaceClient["setTaskStatus"] = unexpectedSetTaskStatus,
 ): SmartSpaceClient {
   return {
     listCategories: vi.fn(async () => categories),
     listTasks: vi.fn(async () => taskResult),
     createTask,
-    setTaskStatus: unexpectedSetTaskStatus,
+    setTaskStatus,
   };
 }
 
@@ -412,5 +413,236 @@ describe("App task workspace lifecycle", () => {
 
     expect(createTaskCommand).not.toHaveBeenCalled();
     expect(await screen.findByRole("alert")).not.toBeNull();
+  });
+
+  it("completes once, then reopens the same task from returned DTOs", async () => {
+    const pendingCompletion = createDeferred<TaskDto>();
+    const openTask = createTask(
+      "10000000-0000-0000-0000-000000000013",
+      "Toggle task",
+      workId,
+    );
+    const completedTask: TaskDto = {
+      ...openTask,
+      status: "completed",
+      updatedAt: "2026-07-28T10:00:00.000000001Z",
+    };
+    const reopenedTask: TaskDto = {
+      ...completedTask,
+      status: "open",
+      updatedAt: "2026-07-28T10:01:00.000000001Z",
+    };
+    const setTaskStatus = vi
+      .fn<SmartSpaceClient["setTaskStatus"]>()
+      .mockImplementationOnce(() => pendingCompletion.promise)
+      .mockResolvedValueOnce(reopenedTask);
+    const client = createClient([openTask], undefined, setTaskStatus);
+
+    render(createElement(App, { client }));
+    expect(await screen.findByText("Toggle task")).not.toBeNull();
+    const completeButton = screen.getByRole("button", {
+      name: "Complete task: Toggle task",
+    });
+    fireEvent.click(completeButton);
+    fireEvent.click(completeButton);
+
+    expect(setTaskStatus).toHaveBeenCalledTimes(1);
+    expect(setTaskStatus).toHaveBeenCalledWith({
+      taskId: openTask.id,
+      status: "completed",
+    });
+    const updatingButton = screen.getByRole("button", {
+      name: "Updating task: Toggle task",
+    }) as HTMLButtonElement;
+    expect(updatingButton.disabled).toBe(true);
+    expect(updatingButton.closest("li")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
+
+    await act(async () => {
+      pendingCompletion.resolve(completedTask);
+      await pendingCompletion.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Task completed.",
+    );
+    const reopenButton = screen.getByRole("button", {
+      name: "Reopen task: Toggle task",
+    });
+    expect(reopenButton.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Toggle task").className).toContain("line-through");
+    expect(screen.getByRole("button", { name: "All tasks 1" })).not.toBeNull();
+
+    fireEvent.click(reopenButton);
+    expect(setTaskStatus).toHaveBeenNthCalledWith(2, {
+      taskId: openTask.id,
+      status: "open",
+    });
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Task reopened.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Complete task: Toggle task" }),
+    ).not.toBeNull();
+    expect(screen.getByText("Toggle task").className).not.toContain(
+      "line-through",
+    );
+  });
+
+  it("keeps the task unchanged and retryable after a status failure", async () => {
+    const openTask = createTask(
+      "10000000-0000-0000-0000-000000000014",
+      "Retry status task",
+      inboxId,
+    );
+    const setTaskStatus = vi.fn(async () => {
+      throw new SmartSpaceCommandError("task_not_found", "missing task");
+    });
+    const client = createClient([openTask], undefined, setTaskStatus);
+
+    render(createElement(App, { client }));
+    const button = await screen.findByRole("button", {
+      name: "Complete task: Retry status task",
+    });
+    fireEvent.click(button);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This task is no longer available.",
+    );
+    const retryButton = screen.getByRole("button", {
+      name: "Complete task: Retry status task",
+    }) as HTMLButtonElement;
+    expect(retryButton.disabled).toBe(false);
+    expect(retryButton.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("Retry status task").className).not.toContain(
+      "line-through",
+    );
+
+    fireEvent.click(retryButton);
+    await waitFor(() => expect(setTaskStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it("updates different tasks independently when responses finish out of order", async () => {
+    const firstUpdate = createDeferred<TaskDto>();
+    const secondUpdate = createDeferred<TaskDto>();
+    const firstTask = createTask(
+      "10000000-0000-0000-0000-000000000017",
+      "First concurrent task",
+      workId,
+    );
+    const secondTask = createTask(
+      "10000000-0000-0000-0000-000000000018",
+      "Second concurrent task",
+      personalId,
+    );
+    const setTaskStatus = vi
+      .fn<SmartSpaceClient["setTaskStatus"]>()
+      .mockImplementationOnce(() => firstUpdate.promise)
+      .mockImplementationOnce(() => secondUpdate.promise);
+    const client = createClient(
+      [firstTask, secondTask],
+      undefined,
+      setTaskStatus,
+    );
+
+    render(createElement(App, { client }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Complete task: First concurrent task",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Complete task: Second concurrent task",
+      }),
+    );
+
+    expect(setTaskStatus).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", {
+        name: "Updating task: First concurrent task",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Updating task: Second concurrent task",
+      }),
+    ).not.toBeNull();
+
+    await act(async () => {
+      secondUpdate.resolve({ ...secondTask, status: "completed" });
+      await secondUpdate.promise;
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Updating task: First concurrent task",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Reopen task: Second concurrent task",
+      }),
+    ).not.toBeNull();
+
+    await act(async () => {
+      firstUpdate.resolve({ ...firstTask, status: "completed" });
+      await firstUpdate.promise;
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Reopen task: First concurrent task",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Reopen task: Second concurrent task",
+      }),
+    ).not.toBeNull();
+  });
+
+  it("ignores a pending status result after the client session changes", async () => {
+    const pendingStatus = createDeferred<TaskDto>();
+    const staleTask = createTask(
+      "10000000-0000-0000-0000-000000000015",
+      "Stale status task",
+      inboxId,
+    );
+    const staleSetTaskStatus = vi.fn(() => pendingStatus.promise);
+    const staleClient = createClient(
+      [staleTask],
+      undefined,
+      staleSetTaskStatus,
+    );
+    const currentTask = createTask(
+      "10000000-0000-0000-0000-000000000016",
+      "Current status task",
+      inboxId,
+    );
+    const currentClient = createClient([currentTask]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Complete task: Stale status task",
+      }),
+    );
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current status task")).not.toBeNull();
+
+    await act(async () => {
+      pendingStatus.resolve({ ...staleTask, status: "completed" });
+      await pendingStatus.promise;
+    });
+
+    expect(screen.queryByText("Stale status task")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Complete task: Current status task",
+      }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 24（前端任务状态 IPC 客户端）已提交并推送；模块 25 待登记。
+- 模块 25（任务完成/恢复交互）已通过实现、验证与独立 review，等待提交和推送。
 
 ## Current Goal
 
@@ -54,11 +54,17 @@
 
 ## In Progress
 
-- None.
+- **模块 25：任务完成/恢复交互**（Ready for delivery）
+  - 范围：把任务行状态标记升级为可访问的完成/恢复按钮，通过现有 `SmartSpaceClient.setTaskStatus` 持久化并用返回任务更新当前工作台；不加入重命名、截止日期、删除、撤销、拖拽排序或智能视图。
+  - 验收条件：开放任务可完成、已完成任务可恢复，鼠标和键盘均可操作且按钮有稳定尺寸、动作名称和 tooltip；同一任务提交期间防止重复调用并保持明确 pending 状态，不同任务可独立操作；成功后仅替换对应任务、保持列表顺序/计数并播报结果；失败时保留原状态、恢复按钮并显示可访问错误；客户端会话切换不得接收旧请求写回；1120×720、800×520 和 640×700 无重叠、裁切或页面溢出。
+  - 实现进度：任务行已加入圆形 toggle 按钮、动作型可访问名称/tooltip、per-row pending 锁和成功/失败反馈；App 使用稳定回调按请求任务 ID 替换后端返回 DTO，keyed 客户端会话继续隔离旧请求。任务行以 `memo` 隔离未变化行，按钮仅用 transform 微反馈并支持 reduced motion。4 个新增交互测试覆盖完成后恢复、重复提交、失败重试、不同任务乱序响应和客户端切换；当前 25 个前端测试、format/typecheck/lint/build 通过。
+  - 视觉进度：1120×720、800×520、640×700 已验收开放/完成圆点、长标题、成功/错误反馈和内部滚动；点击命中区域由 16×16 提升为稳定 24×24，内部圆点保持 16×16，未出现页面溢出、右侧挤压或控件越界。临时视觉夹具已删除，不进入交付。
+  - 验证进度：25 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；release 可执行文件生成于 `src-tauri/target/release/smartspace.exe`。
+  - Review 结果：`gpt-5.6-sol medium` 最终独立 review 为 `APPROVE`，无 findings；新增乱序并发测试关闭了不同任务独立更新的测试缺口，完整差异的正确性、架构边界、React 重渲染、可访问性和 reduced-motion 均核对通过。
 
 ## Next Up
 
-1. 模块 25：按最小可验收范围确定并登记。
+1. 提交并推送模块 25，然后记录交付提交哈希。
 
 ## Open Questions
 

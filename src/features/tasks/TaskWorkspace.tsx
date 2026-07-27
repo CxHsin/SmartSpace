@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   SmartSpaceCommandError,
   type CategoryDto,
   type CreateTaskInput,
+  type SetTaskStatusInput,
   type TaskDto,
 } from "../../lib/smartspace-client";
 import type { TaskWorkspaceData } from "./workspace-loader";
@@ -33,16 +41,85 @@ function TaskStatusMark({ status }: Pick<TaskDto, "status">) {
   );
 }
 
-function TaskRow({
+type TaskFeedback =
+  { readonly kind: "error" | "success"; readonly message: string } | undefined;
+
+function getSetTaskStatusErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "task_not_found") {
+      return "This task is no longer available.";
+    }
+
+    if (error.code === "invalid_input") {
+      return "Task status could not be changed.";
+    }
+  }
+
+  return "Task could not be updated. Try again.";
+}
+
+const TaskRow = memo(function TaskRow({
   category,
+  onSetTaskStatus,
   task,
 }: {
   readonly category: CategoryDto | undefined;
+  readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly task: TaskDto;
 }) {
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [feedback, setFeedback] = useState<TaskFeedback>();
+  const updatingRef = useRef(false);
+  const isCompleted = task.status === "completed";
+  const actionLabel = isCompleted
+    ? `Reopen task: ${task.title}`
+    : `Complete task: ${task.title}`;
+
+  async function toggleStatus() {
+    if (updatingRef.current || onSetTaskStatus === undefined) {
+      return;
+    }
+
+    const status = isCompleted ? "open" : "completed";
+    updatingRef.current = true;
+    setIsUpdating(true);
+    setFeedback(undefined);
+
+    try {
+      await onSetTaskStatus({ taskId: task.id, status });
+      setFeedback({
+        kind: "success",
+        message: status === "completed" ? "Task completed." : "Task reopened.",
+      });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getSetTaskStatusErrorMessage(error),
+      });
+    } finally {
+      updatingRef.current = false;
+      setIsUpdating(false);
+    }
+  }
+
   return (
-    <li className="task-row grid grid-cols-[auto_minmax(0,1fr)] gap-3 border-b border-[var(--border-subtle)] px-4 py-3.5 last:border-b-0">
-      <TaskStatusMark status={task.status} />
+    <li
+      aria-busy={isUpdating ? "true" : undefined}
+      className="task-row grid grid-cols-[auto_minmax(0,1fr)] gap-3 border-b border-[var(--border-subtle)] px-4 py-3.5 last:border-b-0"
+    >
+      {onSetTaskStatus === undefined ? (
+        <TaskStatusMark status={task.status} />
+      ) : (
+        <button
+          aria-label={isUpdating ? `Updating task: ${task.title}` : actionLabel}
+          aria-pressed={isCompleted}
+          className="task-status-button"
+          disabled={isUpdating}
+          onClick={() => void toggleStatus()}
+          title={isCompleted ? "Reopen task" : "Complete task"}
+          type="button"
+        />
+      )}
       <div className="min-w-0">
         <p
           className={
@@ -57,10 +134,22 @@ function TaskRow({
           <span>{category?.name ?? "Unknown category"}</span>
           {task.dueDate === null ? null : <span>Due {task.dueDate}</span>}
         </div>
+        {feedback === undefined ? null : (
+          <p
+            className={
+              feedback.kind === "error"
+                ? "mt-1.5 text-[0.6875rem] text-[var(--status-danger)]"
+                : "mt-1.5 text-[0.6875rem] text-[var(--status-success)]"
+            }
+            role={feedback.kind === "error" ? "alert" : "status"}
+          >
+            {feedback.message}
+          </p>
+        )}
       </div>
     </li>
   );
-}
+});
 
 function EmptyTaskList({ filtered }: { readonly filtered: boolean }) {
   return (
@@ -231,9 +320,11 @@ function QuickAddTask({
 export function TaskWorkspace({
   data,
   onCreateTask,
+  onSetTaskStatus,
 }: {
   readonly data: TaskWorkspaceData;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
   const [selectedCategoryId, setSelectedCategoryId] = useState(ALL_TASKS);
   const categoryById = useMemo(
@@ -336,6 +427,7 @@ export function TaskWorkspace({
                 <TaskRow
                   category={categoryById.get(task.categoryId)}
                   key={task.id}
+                  onSetTaskStatus={onSetTaskStatus}
                   task={task}
                 />
               ))}

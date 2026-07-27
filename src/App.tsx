@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import { TaskWorkspace } from "./features/tasks/TaskWorkspace";
 import {
   loadTaskWorkspace,
@@ -9,6 +9,7 @@ import {
   SmartSpaceCommandError,
   smartSpaceClient,
   type CreateTaskInput,
+  type SetTaskStatusInput,
   type SmartSpaceClient,
   type TaskDto,
 } from "./lib/smartspace-client";
@@ -66,6 +67,17 @@ function insertTaskInStorageOrder(
   });
 
   return { ...data, tasks };
+}
+
+function replaceTask(
+  data: TaskWorkspaceData,
+  taskId: string,
+  updatedTask: TaskDto,
+): TaskWorkspaceData {
+  return {
+    ...data,
+    tasks: data.tasks.map((task) => (task.id === taskId ? updatedTask : task)),
+  };
 }
 
 function TaskLoadingState({
@@ -154,11 +166,13 @@ export function WorkspaceBody({
   workspace,
   onRetry,
   onCreateTask,
+  onSetTaskStatus,
   loadingRegionRef,
 }: {
   readonly workspace: WorkspaceState;
   readonly onRetry: () => void;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
 }) {
   return (
@@ -170,7 +184,11 @@ export function WorkspaceBody({
         <TaskErrorState message={workspace.message} onRetry={onRetry} />
       ) : null}
       {workspace.status === "ready" ? (
-        <TaskWorkspace data={workspace.data} onCreateTask={onCreateTask} />
+        <TaskWorkspace
+          data={workspace.data}
+          onCreateTask={onCreateTask}
+          onSetTaskStatus={onSetTaskStatus}
+        />
       ) : null}
       <ApplicationWorkspace />
     </div>
@@ -216,18 +234,37 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     }
   }, [workspace.status]);
 
-  async function createTask(input: CreateTaskInput) {
-    const createdTask = await client.createTask(input);
-    setWorkspace((current) =>
-      current.status === "ready"
-        ? {
-            status: "ready",
-            data: insertTaskInStorageOrder(current.data, createdTask),
-          }
-        : current,
-    );
-    return createdTask;
-  }
+  const createTask = useCallback(
+    async (input: CreateTaskInput) => {
+      const createdTask = await client.createTask(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: insertTaskInStorageOrder(current.data, createdTask),
+            }
+          : current,
+      );
+      return createdTask;
+    },
+    [client],
+  );
+
+  const setTaskStatus = useCallback(
+    async (input: SetTaskStatusInput) => {
+      const updatedTask = await client.setTaskStatus(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: replaceTask(current.data, input.taskId, updatedTask),
+            }
+          : current,
+      );
+      return updatedTask;
+    },
+    [client],
+  );
 
   return (
     <main className="grid h-screen min-h-0 grid-rows-[3.25rem_minmax(0,1fr)] overflow-hidden bg-[var(--surface-canvas)] text-[var(--text-primary)]">
@@ -247,6 +284,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
       <WorkspaceBody
         loadingRegionRef={loadingRegionRef}
         onCreateTask={createTask}
+        onSetTaskStatus={setTaskStatus}
         onRetry={() => {
           shouldFocusLoading.current = true;
           setWorkspace({ status: "loading" });
