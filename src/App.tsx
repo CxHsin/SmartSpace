@@ -1,22 +1,212 @@
+import { useEffect, useRef, useState, type Ref } from "react";
+import { TaskWorkspace } from "./features/tasks/TaskWorkspace";
+import {
+  loadTaskWorkspace,
+  type TaskWorkspaceData,
+} from "./features/tasks/workspace-loader";
 import { APP_NAME } from "./lib/app-meta";
+import {
+  SmartSpaceCommandError,
+  smartSpaceClient,
+  type SmartSpaceClient,
+} from "./lib/smartspace-client";
 
-export function App() {
+export type WorkspaceState =
+  | { readonly status: "loading" }
+  | { readonly status: "ready"; readonly data: TaskWorkspaceData }
+  | { readonly status: "error"; readonly message: string };
+
+function getWorkspaceErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "data_corrupt") {
+      return "Your local task data could not be read.";
+    }
+
+    if (
+      error.code === "database_unavailable" ||
+      error.code === "database_operation_failed"
+    ) {
+      return "SmartSpace could not open your local task data.";
+    }
+  }
+
+  return "SmartSpace could not load your tasks.";
+}
+
+function TaskLoadingState({
+  regionRef,
+}: {
+  readonly regionRef?: Ref<HTMLElement>;
+}) {
   return (
-    <main className="grid min-h-screen grid-rows-[auto_1fr] bg-[var(--surface-canvas)] text-[var(--text-primary)]">
-      <header className="flex h-12 items-center border-b border-[var(--border-subtle)] px-4">
-        <h1 className="text-sm font-semibold">{APP_NAME}</h1>
-      </header>
-      <div className="grid min-h-0 grid-cols-[15rem_minmax(0,1fr)]">
-        <aside
-          aria-label="Task navigation"
-          className="border-r border-[var(--border-subtle)] p-3"
-        >
-          <p className="text-xs font-medium text-[var(--text-muted)]">Inbox</p>
-        </aside>
-        <section aria-label="Application workspace" className="min-w-0 p-5">
-          <p className="text-sm text-[var(--text-muted)]">Workspace</p>
-        </section>
+    <section
+      aria-busy="true"
+      aria-label="Loading tasks"
+      className="grid min-h-0 grid-cols-[10.5rem_minmax(0,1fr)] max-[520px]:grid-cols-[8.5rem_minmax(0,1fr)]"
+      ref={regionRef}
+      role="status"
+      tabIndex={-1}
+    >
+      <div className="border-r border-[var(--border-subtle)] bg-[var(--surface-sidebar)] p-3">
+        <div className="skeleton-line w-14" />
+        <div className="skeleton-line mt-5 w-full" />
+        <div className="skeleton-line mt-3 w-4/5" />
       </div>
+      <div className="bg-[var(--surface-raised)] p-4">
+        <div className="skeleton-line w-24" />
+        <div className="skeleton-line mt-7 h-4 w-3/4" />
+        <div className="skeleton-line mt-5 h-4 w-1/2" />
+      </div>
+      <span className="sr-only">Loading your workspace</span>
+    </section>
+  );
+}
+
+function TaskErrorState({
+  message,
+  onRetry,
+}: {
+  readonly message: string;
+  readonly onRetry: () => void;
+}) {
+  return (
+    <section
+      aria-label="Task loading error"
+      className="grid min-h-0 place-content-center bg-[var(--surface-raised)] px-6 text-center"
+      role="alert"
+    >
+      <p className="text-sm font-semibold">Tasks unavailable</p>
+      <p className="mt-1 max-w-xs text-xs leading-5 text-[var(--text-muted)]">
+        {message}
+      </p>
+      <button
+        className="retry-button mx-auto mt-4"
+        onClick={onRetry}
+        type="button"
+      >
+        Try again
+      </button>
+    </section>
+  );
+}
+
+function ApplicationWorkspace() {
+  return (
+    <section
+      aria-label="Application workspace"
+      className="grid min-h-0 grid-rows-[auto_1fr] bg-[var(--surface-app)]"
+    >
+      <header className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4">
+        <h2 className="truncate text-sm font-semibold">Applications</h2>
+        <span className="shrink-0 text-xs text-[var(--text-muted)]">
+          0 open
+        </span>
+      </header>
+      <div className="grid min-h-0 place-content-center px-6 text-center">
+        <div
+          aria-hidden="true"
+          className="mx-auto grid size-10 place-content-center border border-[var(--border-strong)] bg-[var(--surface-raised)] text-xs font-bold text-[var(--text-muted)]"
+        >
+          APP
+        </div>
+        <p className="mt-3 text-sm font-medium">No app open</p>
+      </div>
+    </section>
+  );
+}
+
+export function WorkspaceBody({
+  workspace,
+  onRetry,
+  loadingRegionRef,
+}: {
+  readonly workspace: WorkspaceState;
+  readonly onRetry: () => void;
+  readonly loadingRegionRef?: Ref<HTMLElement>;
+}) {
+  return (
+    <div className="workspace-grid grid min-h-0 grid-cols-[minmax(24rem,0.9fr)_minmax(26rem,1.1fr)]">
+      {workspace.status === "loading" ? (
+        <TaskLoadingState regionRef={loadingRegionRef} />
+      ) : null}
+      {workspace.status === "error" ? (
+        <TaskErrorState message={workspace.message} onRetry={onRetry} />
+      ) : null}
+      {workspace.status === "ready" ? (
+        <TaskWorkspace data={workspace.data} />
+      ) : null}
+      <ApplicationWorkspace />
+    </div>
+  );
+}
+
+export function App({
+  client = smartSpaceClient,
+}: {
+  readonly client?: SmartSpaceClient;
+}) {
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [workspace, setWorkspace] = useState<WorkspaceState>({
+    status: "loading",
+  });
+  const loadingRegionRef = useRef<HTMLElement>(null);
+  const shouldFocusLoading = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+
+    void loadTaskWorkspace(client).then(
+      (data) => {
+        if (active) {
+          setWorkspace({ status: "ready", data });
+        }
+      },
+      (error: unknown) => {
+        if (active) {
+          setWorkspace({
+            status: "error",
+            message: getWorkspaceErrorMessage(error),
+          });
+        }
+      },
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [client, loadAttempt]);
+
+  useEffect(() => {
+    if (workspace.status === "loading" && shouldFocusLoading.current) {
+      shouldFocusLoading.current = false;
+      loadingRegionRef.current?.focus();
+    }
+  }, [workspace.status]);
+
+  return (
+    <main className="grid h-screen min-h-0 grid-rows-[3.25rem_minmax(0,1fr)] overflow-hidden bg-[var(--surface-canvas)] text-[var(--text-primary)]">
+      <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-raised)] px-4">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            className="grid size-7 shrink-0 place-content-center bg-[var(--accent-strong)] text-[0.625rem] font-bold text-white"
+          >
+            SS
+          </span>
+          <h1 className="truncate text-sm font-semibold">{APP_NAME}</h1>
+        </div>
+        <span className="shrink-0 text-xs text-[var(--text-muted)]">Local</span>
+      </header>
+
+      <WorkspaceBody
+        loadingRegionRef={loadingRegionRef}
+        onRetry={() => {
+          shouldFocusLoading.current = true;
+          setWorkspace({ status: "loading" });
+          setLoadAttempt((attempt) => attempt + 1);
+        }}
+        workspace={workspace}
+      />
     </main>
   );
 }
