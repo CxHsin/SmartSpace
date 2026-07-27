@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 29（前端分类内任务重排 IPC 客户端）已提交并推送；模块 30 待登记。
+- 模块 30（前端任务删除 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
 
 ## Current Goal
 
@@ -59,11 +59,16 @@
 
 ## In Progress
 
-- None.
+- **模块 30：前端任务删除 IPC 客户端**（Ready for delivery）
+  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `DeleteTaskInput` 与 `deleteTask`，只接通已有 Rust `delete_task` command；不加入删除按钮、确认交互、撤销计时、任务恢复或其他任务写操作。
+  - 验收条件：输入类型只读；客户端精确调用 `delete_task` 并传递 `{ request: { taskId } }`，调用不改写冻结输入并返回删除前包含全部字段的 `TaskDto` 快照；`invalid_input`、`task_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
+  - 实现进度：已新增只读 `DeleteTaskInput`、`SmartSpaceClient.deleteTask` 与 `delete_task` 精确 IPC 调用；测试覆盖冻结输入、删除前完整 8 字段任务快照、精确请求及 `invalid_input`/`task_not_found` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外删除调用；聚焦客户端测试 26/26、全量前端测试 42/42 和 typecheck 已通过。
+  - 验证进度：42 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
+  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；只读输入、Tauri/Rust serde、删除前完整 8 字段快照、结构化错误和所有测试替身均核对通过，聚焦 3 个测试文件 41/41。
 
 ## Next Up
 
-1. 模块 30：按最小可验收范围确定并登记。
+1. 提交并推送模块 30，然后记录交付提交哈希。
 
 ## Open Questions
 

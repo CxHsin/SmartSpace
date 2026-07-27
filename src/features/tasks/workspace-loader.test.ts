@@ -66,6 +66,9 @@ describe("loadTaskWorkspace", () => {
       reorderTasks: vi.fn(async () => {
         throw new Error("Workspace loader called reorderTasks unexpectedly.");
       }),
+      deleteTask: vi.fn(async () => {
+        throw new Error("Workspace loader called deleteTask unexpectedly.");
+      }),
     };
 
     const loading = loadTaskWorkspace(client);

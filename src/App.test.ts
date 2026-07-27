@@ -67,6 +67,10 @@ const unexpectedReorderTasks: SmartSpaceClient["reorderTasks"] = async () => {
   throw new Error("Workspace test called reorderTasks unexpectedly.");
 };
 
+const unexpectedDeleteTask: SmartSpaceClient["deleteTask"] = async () => {
+  throw new Error("Workspace test called deleteTask unexpectedly.");
+};
+
 function createClient(
   taskResult: readonly TaskDto[] = [],
   createTask: SmartSpaceClient["createTask"] = async () => {
@@ -83,6 +87,7 @@ function createClient(
     setTaskDueDate: unexpectedSetTaskDueDate,
     moveTask: unexpectedMoveTask,
     reorderTasks: unexpectedReorderTasks,
+    deleteTask: unexpectedDeleteTask,
   };
 }
 
@@ -134,6 +139,7 @@ describe("App task workspace lifecycle", () => {
       setTaskDueDate: unexpectedSetTaskDueDate,
       moveTask: unexpectedMoveTask,
       reorderTasks: unexpectedReorderTasks,
+      deleteTask: unexpectedDeleteTask,
     };
     const currentClient = createClient([
       createTask(
@@ -225,6 +231,7 @@ describe("App task workspace lifecycle", () => {
       setTaskDueDate: unexpectedSetTaskDueDate,
       moveTask: unexpectedMoveTask,
       reorderTasks: unexpectedReorderTasks,
+      deleteTask: unexpectedDeleteTask,
     };
     const pendingBCategories = createDeferred<readonly CategoryDto[]>();
     const pendingBTasks = createDeferred<readonly TaskDto[]>();
@@ -239,6 +246,7 @@ describe("App task workspace lifecycle", () => {
       setTaskDueDate: unexpectedSetTaskDueDate,
       moveTask: unexpectedMoveTask,
       reorderTasks: unexpectedReorderTasks,
+      deleteTask: unexpectedDeleteTask,
     };
     const rendered = render(createElement(App, { client: clientA }));
 
@@ -297,6 +305,7 @@ describe("App task workspace lifecycle", () => {
       setTaskDueDate: unexpectedSetTaskDueDate,
       moveTask: unexpectedMoveTask,
       reorderTasks: unexpectedReorderTasks,
+      deleteTask: unexpectedDeleteTask,
     };
 
     render(createElement(App, { client }));

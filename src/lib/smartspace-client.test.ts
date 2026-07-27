@@ -481,3 +481,50 @@ describe("SmartSpaceClient reorder tasks command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient delete task command", () => {
+  it("sends the exact readonly request and returns the complete deleted snapshot", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const deletedTask: TaskDto = { ...tasks[0] };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return deletedTask as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({ taskId: tasks[0].id });
+
+    await expect(client.deleteTask(input)).resolves.toEqual(deletedTask);
+    expect(input).toEqual({ taskId: tasks[0].id });
+    expect(calls).toEqual([
+      {
+        command: "delete_task",
+        args: { request: { taskId: tasks[0].id } },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "task id is invalid" },
+    { code: "task_not_found", message: "task does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .deleteTask({ taskId: tasks[0].id })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});
