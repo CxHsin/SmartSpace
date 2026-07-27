@@ -3,6 +3,10 @@ use std::{path::Path, time::Duration};
 use rusqlite::{Connection, TransactionBehavior};
 use thiserror::Error;
 
+use crate::domain::{CategoryId, DomainError};
+
+mod categories;
+
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 
 const SCHEMA_META_SQL: &str = r#"
@@ -28,6 +32,22 @@ pub enum StorageError {
     NonSequentialMigration { expected: i64, found: i64 },
     #[error("migration catalog ends at version {highest}, but supported version is {supported}")]
     MigrationCatalogMismatch { highest: i64, supported: i64 },
+    #[error(transparent)]
+    Domain(#[from] DomainError),
+    #[error(transparent)]
+    InvalidUuid(#[from] uuid::Error),
+    #[error("unknown category kind: {0}")]
+    InvalidCategoryKind(String),
+    #[error("invalid RFC3339 timestamp in storage: {0}")]
+    InvalidTimestamp(#[from] chrono::ParseError),
+    #[error("category storage invariant violated: {reason}")]
+    CorruptCategoryStore { reason: &'static str },
+    #[error("category {id:?} was not found")]
+    CategoryNotFound { id: CategoryId },
+    #[error("a category with that name already exists")]
+    DuplicateCategoryName,
+    #[error("category order must contain every category exactly once")]
+    InvalidCategoryOrder,
 }
 
 #[derive(Debug, Clone, Copy)]
