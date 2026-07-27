@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 6（用户数据目录与数据库运行时初始化）已通过验证和独立 review，正在完成提交与推送。
+- 模块 7（分类列表 Tauri command）已通过验证和独立 review，正在完成提交与推送。
 
 ## Current Goal
 
@@ -33,6 +33,7 @@
 - **模块 4：分类持久化仓库** 已完成：实现分类列表、按 ID 读取、创建、重命名、完整集合重排和原子删除；删除用户分类时按原相对顺序把任务追加到收件箱、按时间语义单调更新 `updated_at` 并压缩分类位置。仓库在写锁内保证 Unicode caseless 名称唯一，并在所有公开读写路径验证固定收件箱、连续位置和名称不变量。37 个 Rust 测试、双连接并发压力复跑、Rust/前端门禁和 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。
 - **模块 5：任务持久化仓库** 已完成：实现任务完整/分类/ID 读取、创建、重命名、完成/恢复、截止日期、跨分类移动、完整集合重排和删除；即时写事务维护位置，延迟读事务提供一致 WAL 快照，任务日期/时间与规范文本使用类型化守卫。修复了纳秒截断、复合读取快照不一致和静默修剪问题；49 个 Rust 测试、并发快照 20 轮复跑、Rust/前端门禁和 Tauri release 构建通过。`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。
 - **模块 6：用户数据目录与数据库运行时初始化** 已完成实现与审查：通过 Tauri `app_data_dir` 解析用户数据目录，在 `setup` 阶段递归创建目录、打开固定的 `smartspace.sqlite3`、执行迁移，并把唯一的 `Database` 包装为带类型化锁错误的 Tauri managed state。4 个模块测试与全量 53 个 Rust 测试通过；Rust fmt/clippy/check、前端 format/lint/typecheck/Vitest/Vite build 及 `tauri build --no-bundle` 全部通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；缺少直接取回 managed state 的 Tauri mock 测试是非阻塞残余风险，setup 接线已有编译约束且初始化逻辑已独立覆盖。
+- **模块 7：分类列表 Tauri command** 已完成实现与审查：注册只读 `list_categories`，通过 managed `DatabaseState` 返回有序分类领域 DTO，并建立 `database_unavailable`、`data_corrupt` 和 `database_operation_failed` 可序列化错误代码。首轮 review 发现持久数据解码错误误分类，修复后领域守卫、UUID、分类类型、时间戳、任务状态/日期和仓库不变量均归为 `data_corrupt`，非法 UUID 回归测试覆盖真实遗漏路径。4 个 command 测试与全量 57 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。后续写命令必须将用户输入的领域校验错误与读取持久数据损坏分开映射。
 
 ## In Progress
 
@@ -40,7 +41,7 @@
 
 ## Next Up
 
-1. 模块 7：待模块 6 完成 review、提交并推送后，按最小可验收范围确定。
+1. 模块 8：待模块 7 完成 review、提交并推送后，按最小可验收范围确定。
 
 ## Open Questions
 
@@ -71,5 +72,6 @@
 - 模块 3 已以提交 `c9a5113` 推送到 `origin/main`。
 - 模块 4 已以提交 `f0dfe4f` 推送到 `origin/main`。
 - 模块 5 已以提交 `c299347` 推送到 `origin/main`。
+- 模块 6 已以提交 `dac82e3` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。

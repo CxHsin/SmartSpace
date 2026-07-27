@@ -18,6 +18,9 @@ pub fn run() {
             app.manage(DatabaseState::initialize(data_directory)?);
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            commands::categories::list_categories
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run SmartSpace");
 }
