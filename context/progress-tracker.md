@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 25（任务完成/恢复交互）已通过实现、验证与独立 review，等待提交和推送。
+- 模块 25（任务完成/恢复交互）已提交并推送；模块 26 待登记。
 
 ## Current Goal
 
@@ -51,20 +51,15 @@
 - **模块 22：前端创建任务 IPC 客户端** 已完成实现与审查：在可注入 `SmartSpaceClient` 中新增只读 `CreateTaskInput` 与 `createTask`，精确调用 `create_task` 并传递 `{ request: { title, categoryId } }`，标题原样交由 Rust 领域层规范化，返回完整 `TaskDto`；`invalid_input`、`category_not_found` 和未知拒绝复用统一错误边界。13 个前端测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `92425e4` 已推送到 `origin/main`。
 - **模块 23：基础添加任务交互** 已完成实现与审查：工作台加入标题输入、当前/显式分类选择和创建提交，空白标题拒绝、原始标题透传、同步重复提交锁、失败保留草稿、成功清空并恢复焦点，同时按持久化顺序更新列表与计数；客户端身份 keyed 会话隔离 A→B pending create 与 A→B→A fresh loading。1120×720、800×520、640×700 的长文本、成功/失败和窄视口验收无溢出；18 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。三轮 `gpt-5.6-sol medium` review 的强调色对比度、live region 与异步客户端隔离 findings 均已关闭，最终结果为 `APPROVE`；模块提交 `5b14e48` 已推送到 `origin/main`。
 - **模块 24：前端任务状态 IPC 客户端** 已完成实现与审查：新增只读 `SetTaskStatusInput` 与 `SmartSpaceClient.setTaskStatus`，精确调用 `set_task_status` 并传递 `{ request: { taskId, status } }`，不改写输入且返回完整 `TaskDto`；`invalid_input`、`task_not_found` 和未知拒绝复用统一错误边界。3 个新增测试与全量 21 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `cbcd39d` 已推送到 `origin/main`。
+- **模块 25：任务完成/恢复交互** 已完成实现与审查：任务行状态标记升级为可访问的完成/恢复按钮，通过 `SmartSpaceClient.setTaskStatus` 持久化并仅以返回 DTO 替换对应任务；per-row pending 锁允许不同任务独立更新，函数式状态合并支持响应乱序完成，客户端 keyed session 隔离旧请求。按钮具备动作名称、tooltip、稳定 24×24 命中区域、成功/错误 live feedback 与 reduced-motion 支持；1120×720、800×520、640×700 视觉验收无重叠或溢出。25 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 最终 review 结果为 `APPROVE`，无 findings；模块提交 `7e69719` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 25：任务完成/恢复交互**（Ready for delivery）
-  - 范围：把任务行状态标记升级为可访问的完成/恢复按钮，通过现有 `SmartSpaceClient.setTaskStatus` 持久化并用返回任务更新当前工作台；不加入重命名、截止日期、删除、撤销、拖拽排序或智能视图。
-  - 验收条件：开放任务可完成、已完成任务可恢复，鼠标和键盘均可操作且按钮有稳定尺寸、动作名称和 tooltip；同一任务提交期间防止重复调用并保持明确 pending 状态，不同任务可独立操作；成功后仅替换对应任务、保持列表顺序/计数并播报结果；失败时保留原状态、恢复按钮并显示可访问错误；客户端会话切换不得接收旧请求写回；1120×720、800×520 和 640×700 无重叠、裁切或页面溢出。
-  - 实现进度：任务行已加入圆形 toggle 按钮、动作型可访问名称/tooltip、per-row pending 锁和成功/失败反馈；App 使用稳定回调按请求任务 ID 替换后端返回 DTO，keyed 客户端会话继续隔离旧请求。任务行以 `memo` 隔离未变化行，按钮仅用 transform 微反馈并支持 reduced motion。4 个新增交互测试覆盖完成后恢复、重复提交、失败重试、不同任务乱序响应和客户端切换；当前 25 个前端测试、format/typecheck/lint/build 通过。
-  - 视觉进度：1120×720、800×520、640×700 已验收开放/完成圆点、长标题、成功/错误反馈和内部滚动；点击命中区域由 16×16 提升为稳定 24×24，内部圆点保持 16×16，未出现页面溢出、右侧挤压或控件越界。临时视觉夹具已删除，不进入交付。
-  - 验证进度：25 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；release 可执行文件生成于 `src-tauri/target/release/smartspace.exe`。
-  - Review 结果：`gpt-5.6-sol medium` 最终独立 review 为 `APPROVE`，无 findings；新增乱序并发测试关闭了不同任务独立更新的测试缺口，完整差异的正确性、架构边界、React 重渲染、可访问性和 reduced-motion 均核对通过。
+- None.
 
 ## Next Up
 
-1. 提交并推送模块 25，然后记录交付提交哈希。
+1. 模块 26：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -115,5 +110,6 @@
 - 模块 22 已以提交 `92425e4` 推送到 `origin/main`。
 - 模块 23 已以提交 `5b14e48` 推送到 `origin/main`。
 - 模块 24 已以提交 `cbcd39d` 推送到 `origin/main`。
+- 模块 25 已以提交 `7e69719` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
