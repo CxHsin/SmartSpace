@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 4（分类持久化仓库）已通过验证和独立 review，正在完成提交与推送。
+- 模块 5（任务持久化仓库）已通过验证和独立 review，正在完成提交与推送。
 
 ## Current Goal
 
@@ -31,6 +31,7 @@
 - **模块 2：任务领域模型与分类不变量** 已完成：新增强类型 UUID、任务标题/分类名校验、固定收件箱身份与删除保护、任务状态和日期/时间字段、纯状态变更以及守卫反序列化；14 个 Rust 测试、Rust format/test/clippy/check、前端回归和 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 未发现缺陷，结果为 `APPROVE`。
 - **模块 3：SQLite schema bootstrap 与迁移** 已完成：新增 bundled `rusqlite`、连接配置、单例 schema 版本表、顺序且原子的内嵌迁移执行器、未来版本拒绝、迁移目录一致性保护，以及带固定收件箱种子的 categories/tasks 初始结构、约束和索引。修复了并发首次打开重复迁移、拒绝未来版本前持久修改 journal mode、目录版本失配和正常重开无谓写锁问题；25 个 Rust 测试、20 轮并发压力复跑、Rust/前端门禁与 Tauri release 构建均通过。`gpt-5.6-sol medium` 第三轮复审结果为 `APPROVE`，无 findings。
 - **模块 4：分类持久化仓库** 已完成：实现分类列表、按 ID 读取、创建、重命名、完整集合重排和原子删除；删除用户分类时按原相对顺序把任务追加到收件箱、按时间语义单调更新 `updated_at` 并压缩分类位置。仓库在写锁内保证 Unicode caseless 名称唯一，并在所有公开读写路径验证固定收件箱、连续位置和名称不变量。37 个 Rust 测试、双连接并发压力复跑、Rust/前端门禁和 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。
+- **模块 5：任务持久化仓库** 已完成：实现任务完整/分类/ID 读取、创建、重命名、完成/恢复、截止日期、跨分类移动、完整集合重排和删除；即时写事务维护位置，延迟读事务提供一致 WAL 快照，任务日期/时间与规范文本使用类型化守卫。修复了纳秒截断、复合读取快照不一致和静默修剪问题；49 个 Rust 测试、并发快照 20 轮复跑、Rust/前端门禁和 Tauri release 构建通过。`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。
 
 ## In Progress
 
@@ -38,7 +39,7 @@
 
 ## Next Up
 
-1. 模块 5：建立任务持久化仓库。
+1. 模块 6：建立用户数据目录与数据库运行时初始化。
 
 ## Open Questions
 
@@ -67,5 +68,6 @@
 - 模块 1 已以提交 `060479d` 推送到公开远程 `https://github.com/CxHsin/SmartSpace` 的 `main` 分支。
 - 模块 2 已以提交 `c9e698f` 推送到 `origin/main`。
 - 模块 3 已以提交 `c9a5113` 推送到 `origin/main`。
+- 模块 4 已以提交 `f0dfe4f` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。

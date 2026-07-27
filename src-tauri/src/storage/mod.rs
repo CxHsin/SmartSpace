@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::domain::{CategoryId, DomainError};
 
 mod categories;
+mod tasks;
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 
@@ -48,6 +49,16 @@ pub enum StorageError {
     DuplicateCategoryName,
     #[error("category order must contain every category exactly once")]
     InvalidCategoryOrder,
+    #[error("unknown task status: {0}")]
+    InvalidTaskStatus(String),
+    #[error("invalid task due date: {0}")]
+    InvalidTaskDate(String),
+    #[error("task {id:?} was not found")]
+    TaskNotFound { id: crate::domain::TaskId },
+    #[error("task order must contain every task in the category exactly once")]
+    InvalidTaskOrder,
+    #[error("task storage invariant violated: {reason}")]
+    CorruptTaskStore { reason: &'static str },
 }
 
 #[derive(Debug, Clone, Copy)]

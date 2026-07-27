@@ -143,7 +143,7 @@ impl Database {
                 DateTime::parse_from_rfc3339(stored_updated_at)?.with_timezone(&Utc);
             let updated_at = stored_updated_at
                 .max(now)
-                .to_rfc3339_opts(SecondsFormat::Micros, true);
+                .to_rfc3339_opts(SecondsFormat::Nanos, true);
             transaction.execute(
                 "UPDATE tasks
                  SET category_id = ?1,
@@ -173,7 +173,7 @@ impl Database {
     }
 }
 
-fn list_categories(connection: &Connection) -> Result<Vec<Category>, StorageError> {
+pub(super) fn list_categories(connection: &Connection) -> Result<Vec<Category>, StorageError> {
     let mut statement = connection
         .prepare("SELECT id, name, position, kind FROM categories ORDER BY position ASC, id ASC")?;
     let records = statement
@@ -199,7 +199,13 @@ fn category_from_record(
     (id, name, position, kind): (String, String, i64, String),
 ) -> Result<Category, StorageError> {
     let id = CategoryId::from_uuid(Uuid::parse_str(&id)?);
-    let name = CategoryName::new(name)?;
+    let stored_name = name;
+    let name = CategoryName::new(stored_name.clone())?;
+    if name.as_str() != stored_name {
+        return Err(StorageError::CorruptCategoryStore {
+            reason: "category names must already be trimmed",
+        });
+    }
     let kind = match kind.as_str() {
         "inbox" => CategoryKind::Inbox,
         "user" => CategoryKind::User,
@@ -506,13 +512,13 @@ mod tests {
                     "10000000-0000-0000-0000-000000000003".to_owned(),
                     inbox_id.clone(),
                     3,
-                    "2026-07-27T13:00:00.000000Z".to_owned(),
+                    "2026-07-27T13:00:00.000000000Z".to_owned(),
                 ),
                 (
                     "10000000-0000-0000-0000-000000000002".to_owned(),
                     inbox_id,
                     4,
-                    "2026-07-27T12:00:00.500000Z".to_owned(),
+                    "2026-07-27T12:00:00.500000000Z".to_owned(),
                 ),
             ]
         );
