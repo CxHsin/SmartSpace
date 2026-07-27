@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --surface-canvas: #f5f7fb;
+  --text-primary: #1b2430;
+  --text-muted: #637083;
+  --border-subtle: #dce2ea;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-canvas: #161a20;
+    --text-primary: #e8edf4;
+    --text-muted: #a4afbd;
+    --border-subtle: #303946;
+  }
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
