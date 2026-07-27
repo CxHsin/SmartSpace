@@ -528,3 +528,60 @@ describe("SmartSpaceClient delete task command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient create category command", () => {
+  it("sends the exact readonly request and returns the complete category DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const createdCategory: CategoryDto = {
+      id: "00000000-0000-0000-0000-000000000002",
+      name: "Projects",
+      position: 1,
+      kind: "user",
+    };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return createdCategory as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({ name: "  Projects  " });
+
+    await expect(client.createCategory(input)).resolves.toEqual(
+      createdCategory,
+    );
+    expect(input).toEqual({ name: "  Projects  " });
+    expect(calls).toEqual([
+      {
+        command: "create_category",
+        args: { request: { name: "  Projects  " } },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "category name cannot be blank" },
+    {
+      code: "duplicate_category_name",
+      message: "category name already exists",
+    },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .createCategory({ name: "Projects" })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});
