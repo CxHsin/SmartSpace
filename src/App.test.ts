@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { TaskWorkspace } from "./features/tasks/TaskWorkspace";
 import { SmartSpaceCommandError } from "./lib/smartspace-client";
 import type {
   CategoryDto,
@@ -44,6 +45,14 @@ function createTask(
     createdAt: "2026-07-28T09:00:00.000000001Z",
     updatedAt: "2026-07-28T09:00:00.000000001Z",
   };
+}
+
+function getLocalTodayForTest() {
+  const date = new Date();
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 const unexpectedSetTaskStatus: SmartSpaceClient["setTaskStatus"] = async () => {
@@ -512,6 +521,128 @@ describe("App task workspace lifecycle", () => {
 
     expect(await screen.findByText("No tasks yet")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Inbox 0" })).not.toBeNull();
+  });
+
+  it("marks only open tasks due before the local calendar day as overdue", async () => {
+    const localToday = getLocalTodayForTest();
+    const overdueTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000024",
+        "Overdue open task",
+        inboxId,
+        0,
+      ),
+      dueDate: "2000-01-01",
+    };
+    const dueTodayTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000025",
+        "Due today task",
+        inboxId,
+        1,
+      ),
+      dueDate: localToday,
+    };
+    const futureTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000026",
+        "Future task",
+        inboxId,
+        2,
+      ),
+      dueDate: "2999-12-31",
+    };
+    const noDateTask = createTask(
+      "10000000-0000-0000-0000-000000000027",
+      "No date task",
+      inboxId,
+      3,
+    );
+    const completedPastTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000028",
+        "Completed past task",
+        inboxId,
+        4,
+      ),
+      dueDate: "2000-01-02",
+      status: "completed",
+    };
+
+    render(
+      createElement(App, {
+        client: createClient([
+          overdueTask,
+          dueTodayTask,
+          futureTask,
+          noDateTask,
+          completedPastTask,
+        ]),
+      }),
+    );
+
+    expect(await screen.findByText("Overdue open task")).not.toBeNull();
+    expect(screen.getAllByText("Overdue")).toHaveLength(1);
+    expect(
+      screen.getByText("Overdue open task").closest("li")?.textContent,
+    ).toContain("Overdue");
+    expect(
+      screen.getByText("Due today task").closest("li")?.textContent,
+    ).not.toContain("Overdue");
+    expect(
+      screen.getByText("Future task").closest("li")?.textContent,
+    ).not.toContain("Overdue");
+    expect(
+      screen.getByText("No date task").closest("li")?.textContent,
+    ).not.toContain("Overdue");
+    expect(
+      screen.getByText("Completed past task").closest("li")?.textContent,
+    ).not.toContain("Overdue");
+    expect(screen.getByText("Due 2000-01-01").className).toContain(
+      "status-danger",
+    );
+    expect(screen.getByText(`Due ${localToday}`).className).toBe("");
+  });
+
+  it("refreshes overdue state at local midnight and cleans up its timer", () => {
+    vi.useFakeTimers();
+    const beforeMidnight = new Date(2026, 6, 28, 23, 59, 59, 900);
+    vi.setSystemTime(beforeMidnight);
+    const dueTodayTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000029",
+        "Becomes overdue at midnight",
+        inboxId,
+      ),
+      dueDate: "2026-07-28",
+    };
+    const rendered = render(
+      createElement(
+        StrictMode,
+        null,
+        createElement(TaskWorkspace, {
+          data: { categories, tasks: [dueTodayTask] },
+        }),
+      ),
+    );
+
+    try {
+      expect(screen.queryByText("Overdue")).toBeNull();
+      expect(vi.getTimerCount()).toBe(1);
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      expect(screen.getByText("Overdue")).not.toBeNull();
+      expect(vi.getTimerCount()).toBe(1);
+
+      rendered.unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      rendered.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it("creates once, preserves raw input, and inserts in storage order", async () => {

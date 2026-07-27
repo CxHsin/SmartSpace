@@ -203,6 +203,15 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.overdue-label {
+  border: 1px solid currentcolor;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--status-danger) 9%, transparent);
+  padding: 0 0.25rem;
+  color: var(--status-danger);
+  font-weight: 600;
+}
+
 .task-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 4.25rem;

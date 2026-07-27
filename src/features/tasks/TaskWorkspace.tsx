@@ -19,6 +19,33 @@ import type { TaskWorkspaceData } from "./workspace-loader";
 const ALL_TASKS = "all";
 const COMPLETED_TASKS = "completed";
 
+function getLocalCalendarDate(date = new Date()) {
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getMillisecondsUntilNextLocalDay(date = new Date()) {
+  const nextDay = new Date(date);
+  nextDay.setHours(24, 0, 0, 0);
+  return Math.max(1, nextDay.getTime() - date.getTime());
+}
+
+function useLocalCalendarDate() {
+  const [today, setToday] = useState(getLocalCalendarDate);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setToday(getLocalCalendarDate());
+    }, getMillisecondsUntilNextLocalDay());
+
+    return () => window.clearTimeout(timeout);
+  }, [today]);
+
+  return today;
+}
+
 function countTasksByCategory(tasks: readonly TaskDto[]) {
   const counts = new Map<string, number>();
   let completed = 0;
@@ -66,10 +93,12 @@ function getSetTaskStatusErrorMessage(error: unknown) {
 
 const TaskRow = memo(function TaskRow({
   category,
+  isOverdue,
   onSetTaskStatus,
   task,
 }: {
   readonly category: CategoryDto | undefined;
+  readonly isOverdue: boolean;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly task: TaskDto;
 }) {
@@ -138,7 +167,14 @@ const TaskRow = memo(function TaskRow({
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-[var(--text-muted)]">
           <span>{category?.name ?? "Unknown category"}</span>
-          {task.dueDate === null ? null : <span>Due {task.dueDate}</span>}
+          {task.dueDate === null ? null : (
+            <span
+              className={isOverdue ? "text-[var(--status-danger)]" : undefined}
+            >
+              Due {task.dueDate}
+            </span>
+          )}
+          {isOverdue ? <span className="overdue-label">Overdue</span> : null}
         </div>
         {feedback === undefined ? null : (
           <p
@@ -522,6 +558,7 @@ export function TaskWorkspace({
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
   const [selectedViewId, setSelectedViewId] = useState(ALL_TASKS);
+  const today = useLocalCalendarDate();
   const categoryById = useMemo(
     () => new Map(data.categories.map((category) => [category.id, category])),
     [data.categories],
@@ -651,6 +688,11 @@ export function TaskWorkspace({
               {visibleTasks.map((task) => (
                 <TaskRow
                   category={categoryById.get(task.categoryId)}
+                  isOverdue={
+                    task.status === "open" &&
+                    task.dueDate !== null &&
+                    task.dueDate < today
+                  }
                   key={task.id}
                   onSetTaskStatus={onSetTaskStatus}
                   task={task}
