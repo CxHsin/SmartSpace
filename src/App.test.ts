@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { SmartSpaceCommandError } from "./lib/smartspace-client";
 import type {
   CategoryDto,
   SmartSpaceClient,
@@ -45,15 +46,16 @@ function createTask(
   };
 }
 
-function createClient(taskResult: readonly TaskDto[] = []): SmartSpaceClient {
+function createClient(
+  taskResult: readonly TaskDto[] = [],
+  createTask: SmartSpaceClient["createTask"] = async () => {
+    throw new Error("Read-only workspace test called createTask unexpectedly.");
+  },
+): SmartSpaceClient {
   return {
     listCategories: vi.fn(async () => categories),
     listTasks: vi.fn(async () => taskResult),
-    createTask: vi.fn(async () => {
-      throw new Error(
-        "Read-only workspace test called createTask unexpectedly.",
-      );
-    }),
+    createTask,
   };
 }
 
@@ -127,6 +129,105 @@ describe("App task workspace lifecycle", () => {
 
     expect(screen.queryByText("Stale workspace")).toBeNull();
     expect(screen.getByText("Current workspace")).not.toBeNull();
+  });
+
+  it("does not merge a pending create after the injected client changes", async () => {
+    const pendingCreate = createDeferred<TaskDto>();
+    const staleCreateTask = vi.fn(() => pendingCreate.promise);
+    const staleClient = createClient([], staleCreateTask);
+    const currentClient = createClient([
+      createTask(
+        "10000000-0000-0000-0000-000000000009",
+        "Current client task",
+        inboxId,
+      ),
+    ]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("Task title"), {
+      target: { value: "Stale created task" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Add task" }));
+    expect(staleCreateTask).toHaveBeenCalledTimes(1);
+
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current client task")).not.toBeNull();
+
+    await act(async () => {
+      pendingCreate.resolve(
+        createTask(
+          "10000000-0000-0000-0000-000000000010",
+          "Stale created task",
+          inboxId,
+          1,
+        ),
+      );
+      await pendingCreate.promise;
+    });
+
+    expect(screen.queryByText("Stale created task")).toBeNull();
+    expect(screen.getByRole("button", { name: "All tasks 1" })).not.toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("starts a fresh loading session when switching from A to B and back", async () => {
+    const freshATasks = createDeferred<readonly TaskDto[]>();
+    const clientA: SmartSpaceClient = {
+      listCategories: vi.fn(async () => categories),
+      listTasks: vi
+        .fn<SmartSpaceClient["listTasks"]>()
+        .mockResolvedValueOnce([
+          createTask(
+            "10000000-0000-0000-0000-000000000011",
+            "Old A snapshot",
+            inboxId,
+          ),
+        ])
+        .mockImplementationOnce(() => freshATasks.promise),
+      createTask: vi.fn(async () => {
+        throw new Error("Loading session exposed createTask unexpectedly.");
+      }),
+    };
+    const pendingBCategories = createDeferred<readonly CategoryDto[]>();
+    const pendingBTasks = createDeferred<readonly TaskDto[]>();
+    const clientB: SmartSpaceClient = {
+      listCategories: () => pendingBCategories.promise,
+      listTasks: () => pendingBTasks.promise,
+      createTask: vi.fn(async () => {
+        throw new Error("Loading session exposed createTask unexpectedly.");
+      }),
+    };
+    const rendered = render(createElement(App, { client: clientA }));
+
+    expect(await screen.findByText("Old A snapshot")).not.toBeNull();
+    rendered.rerender(createElement(App, { client: clientB }));
+    expect(
+      screen.getByRole("status", { name: "Loading tasks" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("form", { name: "Add task" })).toBeNull();
+
+    rendered.rerender(createElement(App, { client: clientA }));
+    expect(
+      screen.getByRole("status", { name: "Loading tasks" }),
+    ).not.toBeNull();
+    expect(screen.queryByText("Old A snapshot")).toBeNull();
+    expect(screen.queryByRole("form", { name: "Add task" })).toBeNull();
+
+    await act(async () => {
+      freshATasks.resolve([
+        createTask(
+          "10000000-0000-0000-0000-000000000012",
+          "Fresh A snapshot",
+          inboxId,
+        ),
+      ]);
+      await freshATasks.promise;
+    });
+
+    expect(await screen.findByText("Fresh A snapshot")).not.toBeNull();
+    expect(screen.queryByText("Old A snapshot")).toBeNull();
+    expect(clientA.listTasks).toHaveBeenCalledTimes(2);
   });
 
   it("announces a failure, focuses loading on retry, and reloads", async () => {
@@ -203,5 +304,104 @@ describe("App task workspace lifecycle", () => {
 
     expect(await screen.findByText("No tasks yet")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Inbox 0" })).not.toBeNull();
+  });
+
+  it("creates once, preserves raw input, and inserts in storage order", async () => {
+    const pendingCreate = createDeferred<TaskDto>();
+    const createTaskCommand = vi.fn(() => pendingCreate.promise);
+    const personalTask = createTask(
+      "10000000-0000-0000-0000-000000000007",
+      "Personal task",
+      personalId,
+    );
+    const client = createClient([personalTask], createTaskCommand);
+
+    render(createElement(App, { client }));
+    expect(await screen.findByText("Personal task")).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("Task title"), {
+      target: { value: "  New work task  " },
+    });
+    fireEvent.change(screen.getByLabelText("Task category"), {
+      target: { value: workId },
+    });
+    const form = screen.getByRole("form", { name: "Add task" });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(createTaskCommand).toHaveBeenCalledTimes(1);
+    expect(createTaskCommand).toHaveBeenCalledWith({
+      title: "  New work task  ",
+      categoryId: workId,
+    });
+    expect(
+      (screen.getByRole("button", { name: "Adding..." }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      pendingCreate.resolve(
+        createTask(
+          "10000000-0000-0000-0000-000000000008",
+          "New work task",
+          workId,
+        ),
+      );
+      await pendingCreate.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Task added.",
+    );
+    expect(
+      (screen.getByLabelText("Task title") as HTMLInputElement).value,
+    ).toBe("");
+    expect(document.activeElement).toBe(screen.getByLabelText("Task title"));
+    expect(screen.getByRole("button", { name: "All tasks 2" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Work 1" })).not.toBeNull();
+    const taskListText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(taskListText?.indexOf("New work task")).toBeLessThan(
+      taskListText?.indexOf("Personal task") ?? -1,
+    );
+  });
+
+  it("defaults to the active category and retains a failed draft", async () => {
+    const createTaskCommand = vi.fn(async () => {
+      throw new SmartSpaceCommandError("invalid_input", "invalid title");
+    });
+    const client = createClient([], createTaskCommand);
+
+    render(createElement(App, { client }));
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Personal 0" }));
+    fireEvent.change(screen.getByLabelText("Task title"), {
+      target: { value: "Draft task" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Add task" }));
+
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    expect(createTaskCommand).toHaveBeenCalledWith({
+      title: "Draft task",
+      categoryId: personalId,
+    });
+    expect(
+      (screen.getByLabelText("Task title") as HTMLInputElement).value,
+    ).toBe("Draft task");
+    expect(
+      (screen.getByRole("button", { name: "Add task" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("does not submit a blank task title", async () => {
+    const createTaskCommand = vi.fn<SmartSpaceClient["createTask"]>();
+    render(createElement(App, { client: createClient([], createTaskCommand) }));
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+
+    fireEvent.submit(screen.getByRole("form", { name: "Add task" }));
+
+    expect(createTaskCommand).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).not.toBeNull();
   });
 });

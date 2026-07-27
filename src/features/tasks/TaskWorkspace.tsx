@@ -1,5 +1,10 @@
-import { useMemo, useState } from "react";
-import type { CategoryDto, TaskDto } from "../../lib/smartspace-client";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  SmartSpaceCommandError,
+  type CategoryDto,
+  type CreateTaskInput,
+  type TaskDto,
+} from "../../lib/smartspace-client";
 import type { TaskWorkspaceData } from "./workspace-loader";
 
 const ALL_TASKS = "all";
@@ -72,7 +77,164 @@ function EmptyTaskList({ filtered }: { readonly filtered: boolean }) {
   );
 }
 
-export function TaskWorkspace({ data }: { readonly data: TaskWorkspaceData }) {
+type CreateFeedback =
+  { readonly kind: "error" | "success"; readonly message: string } | undefined;
+
+function getCreateTaskErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "invalid_input") {
+      return "Enter a valid task title.";
+    }
+
+    if (error.code === "category_not_found") {
+      return "That category is no longer available.";
+    }
+  }
+
+  return "Task could not be added. Try again.";
+}
+
+function QuickAddTask({
+  categories,
+  defaultCategoryId,
+  onCreateTask,
+}: {
+  readonly categories: readonly CategoryDto[];
+  readonly defaultCategoryId: string | undefined;
+  readonly onCreateTask: (input: CreateTaskInput) => Promise<TaskDto>;
+}) {
+  const [title, setTitle] = useState("");
+  const [categoryOverride, setCategoryOverride] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<CreateFeedback>();
+  const submittingRef = useRef(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const availableCategoryIds = useMemo(
+    () => new Set(categories.map((category) => category.id)),
+    [categories],
+  );
+  const selectedCategoryId =
+    categoryOverride !== undefined && availableCategoryIds.has(categoryOverride)
+      ? categoryOverride
+      : defaultCategoryId;
+
+  useEffect(() => {
+    if (!isSubmitting && feedback?.kind === "success") {
+      titleInputRef.current?.focus();
+    }
+  }, [feedback, isSubmitting]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (submittingRef.current) {
+      return;
+    }
+
+    if (title.trim().length === 0 || selectedCategoryId === undefined) {
+      setFeedback({ kind: "error", message: "Enter a task title." });
+      return;
+    }
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setFeedback(undefined);
+
+    try {
+      await onCreateTask({ title, categoryId: selectedCategoryId });
+      setTitle("");
+      setCategoryOverride(undefined);
+      setFeedback({ kind: "success", message: "Task added." });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getCreateTaskErrorMessage(error),
+      });
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
+
+  const cannotSubmit =
+    isSubmitting ||
+    title.trim().length === 0 ||
+    selectedCategoryId === undefined;
+
+  return (
+    <form
+      aria-label="Add task"
+      className="quick-task-form border-b border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-3"
+      onSubmit={handleSubmit}
+    >
+      <label className="sr-only" htmlFor="quick-task-title">
+        Task title
+      </label>
+      <input
+        className="quick-task-input"
+        disabled={isSubmitting}
+        id="quick-task-title"
+        onChange={(event) => {
+          setTitle(event.target.value);
+          if (feedback?.kind === "error") {
+            setFeedback(undefined);
+          }
+        }}
+        placeholder="Task title"
+        ref={titleInputRef}
+        type="text"
+        value={title}
+      />
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <label className="sr-only" htmlFor="quick-task-category">
+          Task category
+        </label>
+        <select
+          className="quick-task-select min-w-0"
+          disabled={isSubmitting || categories.length === 0}
+          id="quick-task-category"
+          onChange={(event) => setCategoryOverride(event.target.value)}
+          value={selectedCategoryId ?? ""}
+        >
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="quick-task-submit"
+          disabled={cannotSubmit}
+          type="submit"
+        >
+          {isSubmitting ? "Adding..." : "Add task"}
+        </button>
+      </div>
+      <div className="min-h-5 pt-1.5">
+        {feedback === undefined ? null : (
+          <p
+            className={
+              feedback.kind === "error"
+                ? "text-[0.6875rem] text-[var(--status-danger)]"
+                : "text-[0.6875rem] text-[var(--status-success)]"
+            }
+            role={feedback.kind === "error" ? "alert" : "status"}
+          >
+            {feedback.message}
+          </p>
+        )}
+      </div>
+    </form>
+  );
+}
+
+export function TaskWorkspace({
+  data,
+  onCreateTask,
+}: {
+  readonly data: TaskWorkspaceData;
+  readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+}) {
   const [selectedCategoryId, setSelectedCategoryId] = useState(ALL_TASKS);
   const categoryById = useMemo(
     () => new Map(data.categories.map((category) => [category.id, category])),
@@ -97,6 +259,11 @@ export function TaskWorkspace({ data }: { readonly data: TaskWorkspaceData }) {
     effectiveCategoryId === ALL_TASKS
       ? undefined
       : categoryById.get(effectiveCategoryId);
+  const inboxCategory = data.categories.find(
+    (category) => category.kind === "inbox",
+  );
+  const defaultCreateCategoryId =
+    effectiveCategoryId === ALL_TASKS ? inboxCategory?.id : effectiveCategoryId;
 
   return (
     <section
@@ -144,7 +311,7 @@ export function TaskWorkspace({ data }: { readonly data: TaskWorkspaceData }) {
         </ul>
       </nav>
 
-      <div className="grid min-h-0 grid-rows-[auto_1fr] bg-[var(--surface-raised)]">
+      <div className="grid min-h-0 grid-rows-[auto_auto_1fr] bg-[var(--surface-raised)]">
         <header className="border-b border-[var(--border-subtle)] px-4 py-3">
           <h2 className="truncate text-sm font-semibold">
             {activeCategory?.name ?? "All tasks"}
@@ -153,6 +320,13 @@ export function TaskWorkspace({ data }: { readonly data: TaskWorkspaceData }) {
             {visibleTasks.length} {visibleTasks.length === 1 ? "task" : "tasks"}
           </p>
         </header>
+        {onCreateTask === undefined ? null : (
+          <QuickAddTask
+            categories={data.categories}
+            defaultCategoryId={defaultCreateCategoryId}
+            onCreateTask={onCreateTask}
+          />
+        )}
         <div className="min-h-0 overflow-y-auto">
           {visibleTasks.length === 0 ? (
             <EmptyTaskList filtered={effectiveCategoryId !== ALL_TASKS} />

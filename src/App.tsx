@@ -8,13 +8,29 @@ import { APP_NAME } from "./lib/app-meta";
 import {
   SmartSpaceCommandError,
   smartSpaceClient,
+  type CreateTaskInput,
   type SmartSpaceClient,
+  type TaskDto,
 } from "./lib/smartspace-client";
 
 export type WorkspaceState =
   | { readonly status: "loading" }
   | { readonly status: "ready"; readonly data: TaskWorkspaceData }
   | { readonly status: "error"; readonly message: string };
+
+const clientKeys = new WeakMap<SmartSpaceClient, number>();
+let nextClientKey = 0;
+
+function getClientKey(client: SmartSpaceClient) {
+  const existingKey = clientKeys.get(client);
+  if (existingKey !== undefined) {
+    return existingKey;
+  }
+
+  nextClientKey += 1;
+  clientKeys.set(client, nextClientKey);
+  return nextClientKey;
+}
 
 function getWorkspaceErrorMessage(error: unknown) {
   if (error instanceof SmartSpaceCommandError) {
@@ -31,6 +47,25 @@ function getWorkspaceErrorMessage(error: unknown) {
   }
 
   return "SmartSpace could not load your tasks.";
+}
+
+function insertTaskInStorageOrder(
+  data: TaskWorkspaceData,
+  createdTask: TaskDto,
+): TaskWorkspaceData {
+  const categoryPositions = new Map(
+    data.categories.map((category) => [category.id, category.position]),
+  );
+  const tasks = [...data.tasks, createdTask];
+  tasks.sort((left, right) => {
+    const categoryDifference =
+      (categoryPositions.get(left.categoryId) ?? Number.MAX_SAFE_INTEGER) -
+      (categoryPositions.get(right.categoryId) ?? Number.MAX_SAFE_INTEGER);
+
+    return categoryDifference || left.position - right.position;
+  });
+
+  return { ...data, tasks };
 }
 
 function TaskLoadingState({
@@ -118,10 +153,12 @@ function ApplicationWorkspace() {
 export function WorkspaceBody({
   workspace,
   onRetry,
+  onCreateTask,
   loadingRegionRef,
 }: {
   readonly workspace: WorkspaceState;
   readonly onRetry: () => void;
+  readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
 }) {
   return (
@@ -133,18 +170,14 @@ export function WorkspaceBody({
         <TaskErrorState message={workspace.message} onRetry={onRetry} />
       ) : null}
       {workspace.status === "ready" ? (
-        <TaskWorkspace data={workspace.data} />
+        <TaskWorkspace data={workspace.data} onCreateTask={onCreateTask} />
       ) : null}
       <ApplicationWorkspace />
     </div>
   );
 }
 
-export function App({
-  client = smartSpaceClient,
-}: {
-  readonly client?: SmartSpaceClient;
-}) {
+function AppSession({ client }: { readonly client: SmartSpaceClient }) {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     status: "loading",
@@ -183,13 +216,26 @@ export function App({
     }
   }, [workspace.status]);
 
+  async function createTask(input: CreateTaskInput) {
+    const createdTask = await client.createTask(input);
+    setWorkspace((current) =>
+      current.status === "ready"
+        ? {
+            status: "ready",
+            data: insertTaskInStorageOrder(current.data, createdTask),
+          }
+        : current,
+    );
+    return createdTask;
+  }
+
   return (
     <main className="grid h-screen min-h-0 grid-rows-[3.25rem_minmax(0,1fr)] overflow-hidden bg-[var(--surface-canvas)] text-[var(--text-primary)]">
       <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-raised)] px-4">
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             aria-hidden="true"
-            className="grid size-7 shrink-0 place-content-center bg-[var(--accent-strong)] text-[0.625rem] font-bold text-white"
+            className="grid size-7 shrink-0 place-content-center bg-[var(--accent-strong)] text-[0.625rem] font-bold text-[var(--text-on-accent)]"
           >
             SS
           </span>
@@ -200,6 +246,7 @@ export function App({
 
       <WorkspaceBody
         loadingRegionRef={loadingRegionRef}
+        onCreateTask={createTask}
         onRetry={() => {
           shouldFocusLoading.current = true;
           setWorkspace({ status: "loading" });
@@ -209,4 +256,12 @@ export function App({
       />
     </main>
   );
+}
+
+export function App({
+  client = smartSpaceClient,
+}: {
+  readonly client?: SmartSpaceClient;
+}) {
+  return <AppSession client={client} key={getClientKey(client)} />;
 }
