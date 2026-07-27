@@ -652,3 +652,68 @@ describe("SmartSpaceClient rename category command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient reorder categories command", () => {
+  it("sends the exact readonly order and returns complete category DTOs", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const userCategory: CategoryDto = {
+      id: "00000000-0000-0000-0000-000000000002",
+      name: "Projects",
+      position: 1,
+      kind: "user",
+    };
+    const reorderedCategories: readonly CategoryDto[] = [
+      { ...userCategory, position: 0 },
+      { ...categories[0], position: 1 },
+    ];
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return reorderedCategories as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const orderedCategoryIds = Object.freeze([
+      userCategory.id,
+      categories[0].id,
+    ]);
+    const input = Object.freeze({ orderedCategoryIds });
+
+    await expect(client.reorderCategories(input)).resolves.toEqual(
+      reorderedCategories,
+    );
+    expect(input).toEqual({
+      orderedCategoryIds: [userCategory.id, categories[0].id],
+    });
+    expect(calls).toEqual([
+      {
+        command: "reorder_categories",
+        args: {
+          request: {
+            orderedCategoryIds: [userCategory.id, categories[0].id],
+          },
+        },
+      },
+    ]);
+  });
+
+  it("preserves the structured invalid_input error", async () => {
+    const client = createSmartSpaceClient(async () => {
+      throw { code: "invalid_input", message: "category order is incomplete" };
+    });
+
+    const error = await client
+      .reorderCategories({ orderedCategoryIds: [categories[0].id] })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(SmartSpaceCommandError);
+    expect(error).toMatchObject({
+      code: "invalid_input",
+      message: "category order is incomplete",
+    });
+  });
+});

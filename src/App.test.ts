@@ -81,6 +81,11 @@ const unexpectedRenameCategory: SmartSpaceClient["renameCategory"] =
     throw new Error("Workspace test called renameCategory unexpectedly.");
   };
 
+const unexpectedReorderCategories: SmartSpaceClient["reorderCategories"] =
+  async () => {
+    throw new Error("Workspace test called reorderCategories unexpectedly.");
+  };
+
 function createClient(
   taskResult: readonly TaskDto[] = [],
   createTask: SmartSpaceClient["createTask"] = async () => {
@@ -100,6 +105,7 @@ function createClient(
     deleteTask: unexpectedDeleteTask,
     createCategory: unexpectedCreateCategory,
     renameCategory: unexpectedRenameCategory,
+    reorderCategories: unexpectedReorderCategories,
   };
 }
 
@@ -154,6 +160,7 @@ describe("App task workspace lifecycle", () => {
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
+      reorderCategories: unexpectedReorderCategories,
     };
     const currentClient = createClient([
       createTask(
@@ -248,6 +255,7 @@ describe("App task workspace lifecycle", () => {
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
+      reorderCategories: unexpectedReorderCategories,
     };
     const pendingBCategories = createDeferred<readonly CategoryDto[]>();
     const pendingBTasks = createDeferred<readonly TaskDto[]>();
@@ -265,6 +273,7 @@ describe("App task workspace lifecycle", () => {
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
+      reorderCategories: unexpectedReorderCategories,
     };
     const rendered = render(createElement(App, { client: clientA }));
 
@@ -326,6 +335,7 @@ describe("App task workspace lifecycle", () => {
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
+      reorderCategories: unexpectedReorderCategories,
     };
 
     render(createElement(App, { client }));

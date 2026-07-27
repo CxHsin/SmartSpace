@@ -75,6 +75,11 @@ describe("loadTaskWorkspace", () => {
       renameCategory: vi.fn(async () => {
         throw new Error("Workspace loader called renameCategory unexpectedly.");
       }),
+      reorderCategories: vi.fn(async () => {
+        throw new Error(
+          "Workspace loader called reorderCategories unexpectedly.",
+        );
+      }),
     };
 
     const loading = loadTaskWorkspace(client);
