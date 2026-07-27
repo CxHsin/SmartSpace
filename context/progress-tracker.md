@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 35（“已完成”智能视图）已通过验证与独立 review，待提交并推送。
+- 模块 35（“已完成”智能视图）已提交并推送；模块 36 待登记。
 
 ## Current Goal
 
@@ -61,7 +61,7 @@
 - **模块 32：前端分类重命名 IPC 客户端** 已完成实现与审查：新增只读 `RenameCategoryInput` 与 `SmartSpaceClient.renameCategory`，精确调用 `rename_category` 并传递 `{ request: { categoryId, name } }`；分类名称原样交由 Rust 领域层规范化，冻结输入保持不变并返回完整四字段 `CategoryDto`。49 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `a640370` 已推送到 `origin/main`。
 - **模块 33：前端分类重排 IPC 客户端** 已完成实现与审查：新增只读 `ReorderCategoriesInput` 与 `SmartSpaceClient.reorderCategories`，精确调用 `reorder_categories` 并传递完整 `{ request: { orderedCategoryIds } }`；冻结输入和只读 ID 序列保持不变，收件箱 ID 原样参与排序，返回完整只读 `CategoryDto` 数组。51 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `e932974` 已推送到 `origin/main`。
 - **模块 34：前端分类删除 IPC 客户端** 已完成实现与审查：新增只读 `DeleteCategoryInput`、`DeleteCategoryResultDto` 与 `SmartSpaceClient.deleteCategory`，精确调用 `delete_category` 并传递 `{ request: { categoryId } }`；冻结输入保持不变，返回删除分类 ID 与迁移任务数，收件箱保护错误保持结构化。55 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `8c3b508` 已推送到 `origin/main`。
-- **模块 35：“已完成”智能视图** 已完成实现与审查：任务导航新增 Completed，计数与分类计数在同一次任务遍历中派生，列表直接从最新 DTO 过滤 `status === "completed"`；All、分类和 Completed 视图的标题、计数、筛选与专用空状态准确，恢复任务后会立即退出 Completed 并同步计数。新增 2 条交互测试；57 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的长标题、切换和恢复流程视觉验收无重叠、裁切或页面溢出。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
+- **模块 35：“已完成”智能视图** 已完成实现与审查：任务导航新增 Completed，计数与分类计数在同一次任务遍历中派生，列表直接从最新 DTO 过滤 `status === "completed"`；All、分类和 Completed 视图的标题、计数、筛选与专用空状态准确，恢复任务后会立即退出 Completed 并同步计数。新增 2 条交互测试；57 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的长标题、切换和恢复流程视觉验收无重叠、裁切或页面溢出。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `7b39a59` 已推送到 `origin/main`。
 
 ## In Progress
 
@@ -69,7 +69,7 @@
 
 ## Next Up
 
-1. 提交并推送模块 35，然后记录交付提交哈希。
+1. 模块 36：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -130,5 +130,6 @@
 - 模块 32 已以提交 `a640370` 推送到 `origin/main`。
 - 模块 33 已以提交 `e932974` 推送到 `origin/main`。
 - 模块 34 已以提交 `8c3b508` 推送到 `origin/main`。
+- 模块 35 已以提交 `7b39a59` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
