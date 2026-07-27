@@ -345,3 +345,68 @@ describe("SmartSpaceClient set task due date command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient move task command", () => {
+  it("sends the exact readonly request and returns the complete task DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const targetCategoryId = "00000000-0000-0000-0000-000000000002";
+    const movedTask: TaskDto = {
+      ...tasks[0],
+      categoryId: targetCategoryId,
+      position: 3,
+      updatedAt: "2026-07-28T09:07:00.000000005Z",
+    };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return movedTask as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({
+      taskId: tasks[0].id,
+      categoryId: targetCategoryId,
+    });
+
+    await expect(client.moveTask(input)).resolves.toEqual(movedTask);
+    expect(input).toEqual({
+      taskId: tasks[0].id,
+      categoryId: targetCategoryId,
+    });
+    expect(calls).toEqual([
+      {
+        command: "move_task",
+        args: {
+          request: {
+            taskId: tasks[0].id,
+            categoryId: targetCategoryId,
+          },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "task id is invalid" },
+    { code: "task_not_found", message: "task does not exist" },
+    { code: "category_not_found", message: "category does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .moveTask({ taskId: tasks[0].id, categoryId: categories[0].id })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

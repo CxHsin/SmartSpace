@@ -60,6 +60,9 @@ describe("loadTaskWorkspace", () => {
       setTaskDueDate: vi.fn(async () => {
         throw new Error("Workspace loader called setTaskDueDate unexpectedly.");
       }),
+      moveTask: vi.fn(async () => {
+        throw new Error("Workspace loader called moveTask unexpectedly.");
+      }),
     };
 
     const loading = loadTaskWorkspace(client);

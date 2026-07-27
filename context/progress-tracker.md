@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 27（前端任务截止日期 IPC 客户端）已提交并推送；模块 28 待登记。
+- 模块 28（前端任务跨分类移动 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
 
 ## Current Goal
 
@@ -57,11 +57,16 @@
 
 ## In Progress
 
-- None.
+- **模块 28：前端任务跨分类移动 IPC 客户端**（Ready for delivery）
+  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `MoveTaskInput` 与 `moveTask`，只接通已有 Rust `move_task` command；不加入分类选择 UI、列表重排、拖拽或其他任务写操作。
+  - 验收条件：输入类型只读；客户端精确调用 `move_task` 并传递 `{ request: { taskId, categoryId } }`，调用不改写冻结输入并返回完整 `TaskDto`；`invalid_input`、`task_not_found`、`category_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
+  - 实现进度：已新增只读 `MoveTaskInput`、`SmartSpaceClient.moveTask` 与 `move_task` 精确 IPC 调用；测试覆盖冻结输入、完整移动后 DTO、精确请求及 `invalid_input`/`task_not_found`/`category_not_found` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外移动调用；聚焦客户端测试 20/20、全量前端测试 36/36 和 typecheck 已通过。
+  - 验证进度：36 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
+  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；`MoveTaskInput`、Tauri 请求形状、Rust serde、冻结输入、完整移动后 DTO、三种领域错误与通用 unknown 边界均核对通过，聚焦 3 个测试文件 35/35。
 
 ## Next Up
 
-1. 模块 28：按最小可验收范围确定并登记。
+1. 提交并推送模块 28，然后记录交付提交哈希。
 
 ## Open Questions
 
@@ -83,7 +88,7 @@
 
 ## Session Notes
 
-- 当前仓库已包含 Tauri 2、React 19、TypeScript、Vite、Tailwind CSS 4 与 Vitest 的基础工程；前端仅有静态应用壳，任务、SQLite、托盘、快捷键、窗口模式与嵌入均尚未实现。
+- 当前仓库已包含 Tauri 2、React 19、TypeScript、Vite、Tailwind CSS 4、Vitest、任务领域/SQLite 持久层、任务 Tauri commands 和基础任务工作台；托盘、快捷键、窗口模式、备份及第三方窗口嵌入仍待后续模块实现。
 - 用户最初描述的“空白板块”已澄清为可直接操作的第三方应用窗口，而不是应用快捷启动网格。
 - 用户要求允许选择任意传统桌面应用；规格必须持续强调兼容性限制，不承诺全部成功。
 - 已确认的窗口嵌入行为：标签页切换只隐藏/显示窗口；关闭标签页默认关闭由 SmartSpace 启动的进程；嵌入失败时提供重试和外部打开。
