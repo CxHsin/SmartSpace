@@ -45,7 +45,13 @@ describe("loadTaskWorkspace", () => {
           resolveTasks = resolve;
         }),
     );
-    const client: SmartSpaceClient = { listCategories, listTasks };
+    const client: SmartSpaceClient = {
+      listCategories,
+      listTasks,
+      createTask: vi.fn(async () => {
+        throw new Error("Workspace loader called createTask unexpectedly.");
+      }),
+    };
 
     const loading = loadTaskWorkspace(client);
 

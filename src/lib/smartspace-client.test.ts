@@ -85,3 +85,59 @@ describe("SmartSpaceClient read commands", () => {
     });
   });
 });
+
+describe("SmartSpaceClient create task command", () => {
+  it("sends the exact request and returns the complete task DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return tasks[0] as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = {
+      title: "  Keep backend normalization  ",
+      categoryId: categories[0].id,
+    };
+
+    await expect(client.createTask(input)).resolves.toEqual(tasks[0]);
+    expect(calls).toEqual([
+      {
+        command: "create_task",
+        args: {
+          request: {
+            title: "  Keep backend normalization  ",
+            categoryId: categories[0].id,
+          },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "title cannot be blank" },
+    {
+      code: "category_not_found",
+      message: "category does not exist",
+    },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .createTask({ title: "Task", categoryId: categories[0].id })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

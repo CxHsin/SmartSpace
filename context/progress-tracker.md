@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 21（只读任务工作台）已提交并推送；模块 22 待登记。
+- 模块 22（前端创建任务 IPC 客户端）已完成实现、验证和独立 review，等待提交并推送。
 
 ## Current Goal
 
@@ -48,6 +48,7 @@
 - **模块 19：任务删除 Tauri command** 已完成实现与审查：注册 `delete_task`，在获取数据库锁前校验任务 UUID，并返回包含 8 个原始字段的完整被删 `Task` 快照，为后续短暂撤销提供无损输入。删除事务压缩同分类后续位置且不影响其他分类；非法输入、缺失任务和持久损坏使用稳定且独立的错误分流。4 个新增测试与全量 108 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `1feaa28` 已推送到 `origin/main`。
 - **模块 20：前端只读 IPC 客户端** 已完成实现与审查：新增可注入的 `SmartSpaceClient`，通过直接导入 Tauri `invoke` 提供 `list_categories` 与 `list_tasks` 强类型读取，DTO 与 Rust 序列化字段一致；8 个已知 command error code 保留结构化信息，未知拒绝稳定归一化为 `unknown`。3 个新增测试与全量 4 个前端测试、前端/Rust 门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `d65ce67` 已推送到 `origin/main`。
 - **模块 21：只读任务工作台** 已完成实现与审查：通过可注入的 `SmartSpaceClient` 以 `Promise.all` 并行加载分类和任务，提供 loading/error/empty/success 状态、分类计数与筛选、任务完成状态/分类/截止日期展示，并保留独立的第三方应用承载边界；长列表使用延迟绘制，骨架动画支持 reduced motion。1120×720、800×520 和 640×700 视觉与交互验收无重叠、裁切或溢出。首轮 review 的辅助文本对比度、异步错误播报与真实 effect/交互测试覆盖 3 个 P2 均已修复；10 个前端测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings；模块提交 `2c3c53d` 已推送到 `origin/main`。
+- **模块 22：前端创建任务 IPC 客户端** 已完成实现与审查：在可注入 `SmartSpaceClient` 中新增只读 `CreateTaskInput` 与 `createTask`，精确调用 `create_task` 并传递 `{ request: { title, categoryId } }`，标题原样交由 Rust 领域层规范化，返回完整 `TaskDto`；`invalid_input`、`category_not_found` 和未知拒绝复用统一错误边界。13 个前端测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
 
 ## In Progress
 
@@ -55,7 +56,7 @@
 
 ## Next Up
 
-1. 模块 22：按最小可验收范围确定并登记。
+1. 模块 23：按最小可验收范围确定并登记。
 
 ## Open Questions
 

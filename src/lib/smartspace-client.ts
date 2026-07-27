@@ -21,6 +21,11 @@ export interface TaskDto {
   readonly updatedAt: string;
 }
 
+export interface CreateTaskInput {
+  readonly title: string;
+  readonly categoryId: string;
+}
+
 export type CommandErrorCode =
   | "invalid_input"
   | "category_not_found"
@@ -49,6 +54,7 @@ export type InvokeCommand = <T>(
 export interface SmartSpaceClient {
   listCategories(): Promise<readonly CategoryDto[]>;
   listTasks(): Promise<readonly TaskDto[]>;
+  createTask(input: CreateTaskInput): Promise<TaskDto>;
 }
 
 const commandErrorCodes = new Set<CommandErrorCode>([
@@ -93,17 +99,22 @@ function normalizeCommandError(error: unknown): SmartSpaceCommandError {
 export function createSmartSpaceClient(
   invokeCommand: InvokeCommand = invoke,
 ): SmartSpaceClient {
-  async function invokeRead<T>(command: string): Promise<T> {
+  async function invokeTyped<T>(
+    command: string,
+    args?: Record<string, unknown>,
+  ): Promise<T> {
     try {
-      return await invokeCommand<T>(command);
+      return await invokeCommand<T>(command, args);
     } catch (error) {
       throw normalizeCommandError(error);
     }
   }
 
   return {
-    listCategories: () => invokeRead<readonly CategoryDto[]>("list_categories"),
-    listTasks: () => invokeRead<readonly TaskDto[]>("list_tasks"),
+    listCategories: () =>
+      invokeTyped<readonly CategoryDto[]>("list_categories"),
+    listTasks: () => invokeTyped<readonly TaskDto[]>("list_tasks"),
+    createTask: (request) => invokeTyped<TaskDto>("create_task", { request }),
   };
 }
 

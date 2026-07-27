@@ -49,6 +49,11 @@ function createClient(taskResult: readonly TaskDto[] = []): SmartSpaceClient {
   return {
     listCategories: vi.fn(async () => categories),
     listTasks: vi.fn(async () => taskResult),
+    createTask: vi.fn(async () => {
+      throw new Error(
+        "Read-only workspace test called createTask unexpectedly.",
+      );
+    }),
   };
 }
 
@@ -90,6 +95,11 @@ describe("App task workspace lifecycle", () => {
     const staleClient: SmartSpaceClient = {
       listCategories: () => staleCategories.promise,
       listTasks: () => staleTasks.promise,
+      createTask: async () => {
+        throw new Error(
+          "Read-only workspace test called createTask unexpectedly.",
+        );
+      },
     };
     const currentClient = createClient([
       createTask(
@@ -134,6 +144,11 @@ describe("App task workspace lifecycle", () => {
     const client: SmartSpaceClient = {
       listCategories: vi.fn(async () => categories),
       listTasks,
+      createTask: vi.fn(async () => {
+        throw new Error(
+          "Read-only workspace test called createTask unexpectedly.",
+        );
+      }),
     };
 
     render(createElement(App, { client }));
