@@ -4,12 +4,20 @@ mod embedding;
 pub mod storage;
 mod windows;
 
+use storage::DatabaseState;
+use tauri::Manager;
+
 pub const APP_NAME: &str = "SmartSpace";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let data_directory = app.path().app_data_dir()?;
+            app.manage(DatabaseState::initialize(data_directory)?);
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("failed to run SmartSpace");
 }

@@ -6,7 +6,10 @@ use thiserror::Error;
 use crate::domain::{CategoryId, DomainError};
 
 mod categories;
+mod runtime;
 mod tasks;
+
+pub use runtime::{DatabaseRuntimeError, DatabaseState, DATABASE_FILE_NAME};
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 

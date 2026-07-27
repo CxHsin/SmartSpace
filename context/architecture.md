@@ -90,6 +90,9 @@
 
 ### User Data Directory
 
+- 用户数据根目录必须由 Tauri `app.path().app_data_dir()` 解析，不手工拼接用户主目录或依赖环境变量。
+- 主 SQLite 文件固定命名为 `smartspace.sqlite3`；应用启动的 `setup` 阶段递归创建数据目录、打开数据库并完成迁移，然后才允许业务流程继续。
+- 进程内只初始化一个 `Database`，以 `std::sync::Mutex` 包装后注入 Tauri managed state；命令层后续只能通过该状态访问主数据库。
 - SQLite 数据库文件。
 - 从可执行文件提取的应用图标缓存。
 - 导入前创建的恢复点。
