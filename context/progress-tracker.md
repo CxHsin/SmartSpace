@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 15（分类内任务重排 Tauri command）已通过独立 review，待独立提交并推送。
+- 模块 15（分类内任务重排 Tauri command）已提交并推送；模块 16 待登记。
 
 ## Current Goal
 
@@ -41,20 +41,15 @@
 - **模块 12：任务重命名 Tauri command** 已完成实现与审查：注册 `rename_task`，在获取数据库锁前校验任务 UUID 并通过 `TaskTitle` 规范化标题，由 Rust 生成 UTC 更新时间，再通过即时事务持久化。重复设置同一规范标题保持 `updatedAt` 不变，用户输入与持久损坏继续使用独立错误分流。4 个新增测试与全量 75 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
 - **模块 13：任务截止日期 Tauri command** 已完成实现与审查：注册 `set_task_due_date`，强制请求显式包含日期字符串或 `null`；日期先验证精确 ASCII `YYYY-MM-DD` 形状，再以 `NaiveDate` 校验本地日历有效性，由 Rust 生成 UTC 更新时间并通过即时事务设置或清除。首轮 review 发现缺失字段误清除与宽松日期解析，修复后新增对应回归测试。5 个新增测试与全量 80 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。
 - **模块 14：任务跨分类移动 Tauri command** 已完成实现与审查：注册 `move_task`，在获取数据库锁前校验任务与目标分类 UUID，由 Rust 生成 UTC 更新时间并调用已有事务性仓库移动。跨分类移动追加到目标末尾并压缩源位置，同分类移动保持 `updatedAt`；非法输入、缺失实体和持久损坏使用稳定且独立的错误分流。5 个新增测试与全量 85 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `1b41e84` 已推送到 `origin/main`。
+- **模块 15：分类内任务重排 Tauri command** 已完成实现与审查：注册 `reorder_tasks`，在获取数据库锁前校验分类与完整任务 UUID 序列，由 Rust 生成 UTC 更新时间并调用现有事务性仓库重排。有效完整集合按请求持久化且同序提交保持时间戳；重复、缺失、额外或跨分类 ID 原子拒绝为 `invalid_input`，缺失分类与持久损坏保持独立错误分流。5 个新增测试与全量 90 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `b40b80b` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 15：分类内任务重排 Tauri command**（`Review Approved; Pending Delivery`）
-  - 范围：新增并注册 `reorder_tasks`，接收 `categoryId` 与完整的 `orderedTaskIds`；command 层在获取数据库锁前校验所有 UUID，由 Rust 生成 UTC 更新时间，并调用现有 `Database::reorder_tasks` 返回目标分类的新顺序。
-  - 验收：有效完整序列按请求持久化；发生位置变化的任务使用同一更新时间；重复提交相同顺序保持 `updatedAt`；重复、缺失、额外或属于其他分类的任务 ID 返回 `invalid_input` 且原子零写入；缺失分类返回 `category_not_found`；持久损坏保持 `data_corrupt`。
-  - 非范围：跨分类移动、分类重排、删除、React UI 与拖拽交互。
-  - 实现状态：command DTO、锁前全量 UUID 校验、UTC 时间生成、仓库调用、`InvalidTaskOrder` 用户错误分流、invoke handler 注册及 5 个聚焦测试已完成。
-  - 验证：5/5 聚焦测试与全量 90 个 Rust 测试通过；Rust fmt、全目标全特性 Clippy（`-D warnings`）及 check 通过；前端 Prettier、ESLint、TypeScript、1/1 Vitest、Vite production build 通过；`tauri build --no-bundle` 通过并生成 release executable。
-  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无阻塞或非阻塞 findings；reviewer 独立复跑 90 个 Rust 测试、fmt、严格 Clippy 与 diff check 均通过，未修改工作树。
+- None.
 
 ## Next Up
 
-1. 完成模块 15 的实现、验证、独立 review、提交与推送。
+1. 模块 16：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -94,5 +89,6 @@
 - 模块 12 已以提交 `1456c57` 推送到 `origin/main`。
 - 模块 13 已以提交 `2563626` 推送到 `origin/main`。
 - 模块 14 已以提交 `1b41e84` 推送到 `origin/main`。
+- 模块 15 已以提交 `b40b80b` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
