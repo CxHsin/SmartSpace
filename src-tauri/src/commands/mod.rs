@@ -8,6 +8,8 @@ pub(crate) mod tasks;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum CommandErrorCode {
+    InvalidInput,
+    CategoryNotFound,
     DatabaseUnavailable,
     DataCorrupt,
     DatabaseOperationFailed,
@@ -35,12 +37,24 @@ impl From<DatabaseRuntimeError> for CommandError {
                 | StorageError::InvalidTaskDate(_)
                 | StorageError::CorruptTaskStore { .. },
             ) => CommandErrorCode::DataCorrupt,
+            DatabaseRuntimeError::Storage(StorageError::CategoryNotFound { .. }) => {
+                CommandErrorCode::CategoryNotFound
+            }
             DatabaseRuntimeError::Storage(_) => CommandErrorCode::DatabaseOperationFailed,
         };
 
         Self {
             code,
             message: error.to_string(),
+        }
+    }
+}
+
+impl CommandError {
+    fn invalid_input(message: impl Into<String>) -> Self {
+        Self {
+            code: CommandErrorCode::InvalidInput,
+            message: message.into(),
         }
     }
 }
