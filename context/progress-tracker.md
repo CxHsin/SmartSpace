@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 18（分类删除 Tauri command）已通过独立复审，待独立提交并推送。
+- 模块 18（分类删除 Tauri command）已提交并推送；模块 19 待登记。
 
 ## Current Goal
 
@@ -44,21 +44,15 @@
 - **模块 15：分类内任务重排 Tauri command** 已完成实现与审查：注册 `reorder_tasks`，在获取数据库锁前校验分类与完整任务 UUID 序列，由 Rust 生成 UTC 更新时间并调用现有事务性仓库重排。有效完整集合按请求持久化且同序提交保持时间戳；重复、缺失、额外或跨分类 ID 原子拒绝为 `invalid_input`，缺失分类与持久损坏保持独立错误分流。5 个新增测试与全量 90 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `b40b80b` 已推送到 `origin/main`。
 - **模块 16：分类重命名 Tauri command** 已完成实现与审查：注册 `rename_category`，在获取数据库锁前校验分类 UUID 并通过 `CategoryName` 规范化名称，再调用现有事务性仓库重命名。用户分类与收件箱均可重命名，收件箱固定 ID 与系统类型保持不变；非法输入、Unicode caseless 重名、缺失分类和持久损坏使用稳定且独立的错误分流。5 个新增测试与全量 95 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `584a083` 已推送到 `origin/main`。
 - **模块 17：分类重排 Tauri command** 已完成实现与审查：注册 `reorder_categories`，在获取数据库锁前校验完整分类 UUID 序列，再调用现有事务性仓库重排。有效完整集合按请求持久化，收件箱可参与任意位置但固定 ID 与系统类型保持不变；重复、缺失或额外 ID 原子拒绝为 `invalid_input`，持久损坏保持独立错误分流。4 个新增测试与全量 99 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `b197c38` 已推送到 `origin/main`。
+- **模块 18：分类删除 Tauri command** 已完成实现与审查：注册 `delete_category`，在锁前校验分类 UUID，由 Rust 生成 UTC 时间并返回删除分类 ID 与迁移任务数；用户分类删除会按原顺序把任务追加到收件箱并压缩分类位置，收件箱删除返回稳定 `cannot_delete_inbox`。首轮 review 发现删除路径未完整验证任务存储，修复为在同一即时事务中先复用完整任务解码与全库位置不变量校验，损坏时分类和任务均原样保留。5 个新增 command 测试与全量 104 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无剩余 findings；模块提交 `c230971` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 18：分类删除 Tauri command**（`Review Approved; Pending Delivery`）
-  - 范围：新增并注册 `delete_category`，接收 `categoryId`；command 层在获取数据库锁前校验 UUID，由 Rust 生成 UTC 时间并调用现有 `Database::delete_category`，返回删除分类 ID 与迁移到收件箱的任务数量。
-  - 验收：删除用户分类后任务按原顺序追加到收件箱、更新时间按单调 UTC 语义更新、分类位置压缩；空分类返回迁移数 0；删除收件箱返回稳定 `cannot_delete_inbox` 且零写入；非法 UUID 不产生写入；缺失分类返回 `category_not_found`；持久损坏保持 `data_corrupt`。
-  - 非范围：任务删除/撤销、分类恢复、React UI 与其他 command。
-  - 实现状态：command/result DTO、锁前 UUID 校验、Rust UTC 时间生成、仓库调用、`cannot_delete_inbox` 稳定错误码、invoke handler 注册及 5 个聚焦测试已完成。
-  - 验证：5/5 聚焦测试与全量 104 个 Rust 测试通过；Rust fmt、全目标全特性 Clippy（`-D warnings`）及 check 通过；前端 Prettier、ESLint、TypeScript、1/1 Vitest、Vite production build 通过；`tauri build --no-bundle` 通过并生成 release executable。待独立 review。
-  - Review finding：首轮 review 发现分类删除事务只读取待迁移任务的 ID 与时间戳，未完整验证任务存储，可能静默迁移损坏任务并删除分类（P1）。已改为在同一即时事务内复用任务仓库的完整解码与全库不变量校验，再筛选迁移任务；新增损坏任务回归测试确认分类和任务均原样保留。旧仓库测试数据同步改为符合连续位置不变量。修复后 5/5 command 聚焦测试、全量 104 个 Rust 测试、严格 Rust/前端门禁与 Tauri release build 均通过，复审确认 finding 已关闭。
-  - Review：`gpt-5.6-sol medium` 复审确认原 P1 已关闭，结果为 `APPROVE`，无剩余 findings；reviewer 独立复跑 104 个 Rust 测试、fmt、全目标全特性严格 Clippy 与 diff check 均通过，未修改工作树。
+- None.
 
 ## Next Up
 
-1. 完成模块 18 的实现、验证、独立 review、提交与推送。
+1. 模块 19：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -101,5 +95,6 @@
 - 模块 15 已以提交 `b40b80b` 推送到 `origin/main`。
 - 模块 16 已以提交 `584a083` 推送到 `origin/main`。
 - 模块 17 已以提交 `b197c38` 推送到 `origin/main`。
+- 模块 18 已以提交 `c230971` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
