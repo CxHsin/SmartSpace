@@ -1,1 +1,9 @@
-// Shared domain models and pure business rules belong here.
+mod category;
+mod error;
+mod id;
+mod task;
+
+pub use category::{Category, CategoryKind, CategoryName};
+pub use error::DomainError;
+pub use id::{CategoryId, TaskId};
+pub use task::{Task, TaskStatus, TaskTitle};

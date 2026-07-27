@@ -1,5 +1,5 @@
 mod commands;
-mod domain;
+pub mod domain;
 mod embedding;
 mod storage;
 mod windows;
