@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 23（基础添加任务交互）已通过实现、验证与独立 review，等待提交和推送。
+- 模块 23（基础添加任务交互）已提交并推送；模块 24 待登记。
 
 ## Current Goal
 
@@ -49,19 +49,15 @@
 - **模块 20：前端只读 IPC 客户端** 已完成实现与审查：新增可注入的 `SmartSpaceClient`，通过直接导入 Tauri `invoke` 提供 `list_categories` 与 `list_tasks` 强类型读取，DTO 与 Rust 序列化字段一致；8 个已知 command error code 保留结构化信息，未知拒绝稳定归一化为 `unknown`。3 个新增测试与全量 4 个前端测试、前端/Rust 门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `d65ce67` 已推送到 `origin/main`。
 - **模块 21：只读任务工作台** 已完成实现与审查：通过可注入的 `SmartSpaceClient` 以 `Promise.all` 并行加载分类和任务，提供 loading/error/empty/success 状态、分类计数与筛选、任务完成状态/分类/截止日期展示，并保留独立的第三方应用承载边界；长列表使用延迟绘制，骨架动画支持 reduced motion。1120×720、800×520 和 640×700 视觉与交互验收无重叠、裁切或溢出。首轮 review 的辅助文本对比度、异步错误播报与真实 effect/交互测试覆盖 3 个 P2 均已修复；10 个前端测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings；模块提交 `2c3c53d` 已推送到 `origin/main`。
 - **模块 22：前端创建任务 IPC 客户端** 已完成实现与审查：在可注入 `SmartSpaceClient` 中新增只读 `CreateTaskInput` 与 `createTask`，精确调用 `create_task` 并传递 `{ request: { title, categoryId } }`，标题原样交由 Rust 领域层规范化，返回完整 `TaskDto`；`invalid_input`、`category_not_found` 和未知拒绝复用统一错误边界。13 个前端测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `92425e4` 已推送到 `origin/main`。
+- **模块 23：基础添加任务交互** 已完成实现与审查：工作台加入标题输入、当前/显式分类选择和创建提交，空白标题拒绝、原始标题透传、同步重复提交锁、失败保留草稿、成功清空并恢复焦点，同时按持久化顺序更新列表与计数；客户端身份 keyed 会话隔离 A→B pending create 与 A→B→A fresh loading。1120×720、800×520、640×700 的长文本、成功/失败和窄视口验收无溢出；18 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。三轮 `gpt-5.6-sol medium` review 的强调色对比度、live region 与异步客户端隔离 findings 均已关闭，最终结果为 `APPROVE`；模块提交 `5b14e48` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 23：基础添加任务交互**（Ready for delivery）
-  - 范围：在已加载的任务工作台中加入标题输入、单层分类选择和提交动作，通过现有 `SmartSpaceClient.createTask` 持久化，并用返回任务更新当前列表；不加入截止日期、其他写操作、乐观回滚或智能视图。
-  - 验收条件：全部视图默认创建到收件箱，分类视图默认创建到当前分类，用户可显式改选分类；空白标题不提交，标题原样交由后端规范化；提交期间防止重复创建；成功后清空草稿、更新列表/计数并播报结果；失败时保留草稿、恢复可操作状态并显示可访问错误；任务保持按分类位置和分类内位置排序；800×520 与窄视口无溢出。
-  - 实现进度：已接通工作台快速添加表单与 `SmartSpaceClient.createTask`，加入分类上下文默认值与显式覆盖、同步重复提交锁、成功/失败反馈、成功后焦点恢复，以及按持久化顺序插入返回任务并即时更新列表和计数；视觉验收发现并修复了输入框仍禁用时过早聚焦的问题，回归测试已覆盖实际焦点目标。
-  - 验证进度：16 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）与 `tauri build --no-bundle` 全部通过；1120×720、800×520、640×700 三个视口已验证长标题/长分类、成功/失败反馈、当前分类默认值、计数更新和焦点恢复，无页面级溢出或控件越界。临时视觉夹具已删除，不进入交付。
-  - Review 结果：`gpt-5.6-sol medium` 首轮 review 的强调色文字对比度与嵌套 live region 两项 P2 已关闭；异步客户端隔离项经第二轮复审继续发现 A→B→A 旧快照复用，现已改为按客户端身份 `key` 完整重建工作区会话，直接卸载旧加载/创建状态，并新增 A→B pending create 与 A→B→A fresh loading 两类交错回归。第三轮复审结果为 `APPROVE`，无剩余 findings。
+- None.
 
 ## Next Up
 
-1. 提交并推送模块 23，然后记录交付提交哈希。
+1. 模块 24：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -110,5 +106,6 @@
 - 模块 20 已以提交 `d65ce67` 推送到 `origin/main`。
 - 模块 21 已以提交 `2c3c53d` 推送到 `origin/main`。
 - 模块 22 已以提交 `92425e4` 推送到 `origin/main`。
+- 模块 23 已以提交 `5b14e48` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
