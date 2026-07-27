@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 20（前端只读 IPC 客户端）已通过独立 review，待独立提交并推送。
+- 模块 20（前端只读 IPC 客户端）已提交并推送；模块 21 待登记。
 
 ## Current Goal
 
@@ -46,20 +46,15 @@
 - **模块 17：分类重排 Tauri command** 已完成实现与审查：注册 `reorder_categories`，在获取数据库锁前校验完整分类 UUID 序列，再调用现有事务性仓库重排。有效完整集合按请求持久化，收件箱可参与任意位置但固定 ID 与系统类型保持不变；重复、缺失或额外 ID 原子拒绝为 `invalid_input`，持久损坏保持独立错误分流。4 个新增测试与全量 99 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `b197c38` 已推送到 `origin/main`。
 - **模块 18：分类删除 Tauri command** 已完成实现与审查：注册 `delete_category`，在锁前校验分类 UUID，由 Rust 生成 UTC 时间并返回删除分类 ID 与迁移任务数；用户分类删除会按原顺序把任务追加到收件箱并压缩分类位置，收件箱删除返回稳定 `cannot_delete_inbox`。首轮 review 发现删除路径未完整验证任务存储，修复为在同一即时事务中先复用完整任务解码与全库位置不变量校验，损坏时分类和任务均原样保留。5 个新增 command 测试与全量 104 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无剩余 findings；模块提交 `c230971` 已推送到 `origin/main`。
 - **模块 19：任务删除 Tauri command** 已完成实现与审查：注册 `delete_task`，在获取数据库锁前校验任务 UUID，并返回包含 8 个原始字段的完整被删 `Task` 快照，为后续短暂撤销提供无损输入。删除事务压缩同分类后续位置且不影响其他分类；非法输入、缺失任务和持久损坏使用稳定且独立的错误分流。4 个新增测试与全量 108 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `1feaa28` 已推送到 `origin/main`。
+- **模块 20：前端只读 IPC 客户端** 已完成实现与审查：新增可注入的 `SmartSpaceClient`，通过直接导入 Tauri `invoke` 提供 `list_categories` 与 `list_tasks` 强类型读取，DTO 与 Rust 序列化字段一致；8 个已知 command error code 保留结构化信息，未知拒绝稳定归一化为 `unknown`。3 个新增测试与全量 4 个前端测试、前端/Rust 门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `d65ce67` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 20：前端只读 IPC 客户端**（`Review Approved; Pending Delivery`）
-  - 范围：新增前端 `SmartSpaceClient`，为 `list_categories` 与 `list_tasks` 提供强类型 DTO 和无参数 invoke 封装，并把 Tauri command 的结构化拒绝统一转换为可判别的前端错误。
-  - 验收：两个读取方法调用精确 command 名且不发送多余参数；分类与任务 DTO 覆盖当前 Rust 序列化字段；已知结构化错误保留 code/message，未知拒绝转换为稳定 `unknown` 错误；客户端支持测试注入且生产默认使用 Tauri `invoke`。
-  - 非范围：写命令、React 数据加载、缓存/状态管理、视觉 UI 与 Amicro 动画。
-  - 实现状态：分类/任务 DTO、已知错误码联合类型、`SmartSpaceCommandError`、可注入客户端工厂、生产 Tauri invoke 默认值及 3 个聚焦测试已完成。
-  - 验证：3/3 聚焦测试与全量 4 个前端测试通过；Prettier、ESLint、TypeScript、Vite production build、全量 108 个 Rust 测试、Rust fmt/严格 Clippy/check 及 `tauri build --no-bundle` 全部通过。
-  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无 findings；适用的 `vercel-react-best-practices` 直接导入/bundle 规则、DTO/错误码契约、默认实例副作用与测试覆盖均通过审查，reviewer 未修改工作树。
+- None.
 
 ## Next Up
 
-1. 完成模块 20 的实现、验证、独立 review、提交与推送。
+1. 模块 21：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -105,5 +100,6 @@
 - 模块 17 已以提交 `b197c38` 推送到 `origin/main`。
 - 模块 18 已以提交 `c230971` 推送到 `origin/main`。
 - 模块 19 已以提交 `1feaa28` 推送到 `origin/main`。
+- 模块 20 已以提交 `d65ce67` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
