@@ -395,6 +395,117 @@ describe("App task workspace lifecycle", () => {
     ).not.toBeNull();
   });
 
+  it("filters completed tasks while preserving all-task and category views", async () => {
+    const openWorkTask = createTask(
+      "10000000-0000-0000-0000-000000000019",
+      "Open work task",
+      workId,
+    );
+    const completedWorkTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000020",
+        "Completed work task",
+        workId,
+        1,
+      ),
+      status: "completed",
+    };
+    const completedPersonalTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000021",
+        "Completed personal task",
+        personalId,
+      ),
+      status: "completed",
+    };
+
+    render(
+      createElement(App, {
+        client: createClient([
+          openWorkTask,
+          completedWorkTask,
+          completedPersonalTask,
+        ]),
+      }),
+    );
+
+    expect(await screen.findByText("Open work task")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "All tasks 3" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Work 2" })).not.toBeNull();
+    const completedViewButton = screen.getByRole("button", {
+      name: "Completed 2",
+    });
+
+    fireEvent.click(completedViewButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Open work task")).toBeNull();
+    });
+    expect(screen.getByText("Completed work task")).not.toBeNull();
+    expect(screen.getByText("Completed personal task")).not.toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Completed", level: 2 }),
+    ).not.toBeNull();
+    expect(completedViewButton.getAttribute("aria-current")).toBe("page");
+
+    fireEvent.click(screen.getByRole("button", { name: "All tasks 3" }));
+    expect(await screen.findByText("Open work task")).not.toBeNull();
+    expect(screen.getByText("Completed personal task")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Work 2" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Completed personal task")).toBeNull();
+    });
+    expect(screen.getByText("Open work task")).not.toBeNull();
+    expect(screen.getByText("Completed work task")).not.toBeNull();
+  });
+
+  it("removes a reopened task from the completed view and updates its count", async () => {
+    const completedTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000022",
+        "Archived task",
+        inboxId,
+      ),
+      status: "completed",
+    };
+    const reopenedTask: TaskDto = {
+      ...completedTask,
+      status: "open",
+      updatedAt: "2026-07-28T11:00:00.000000001Z",
+    };
+    const setTaskStatus = vi.fn(async () => reopenedTask);
+
+    render(
+      createElement(App, {
+        client: createClient([completedTask], undefined, setTaskStatus),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Completed 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reopen task: Archived task" }),
+    );
+
+    expect(await screen.findByText("No completed tasks")).not.toBeNull();
+    expect(
+      screen.getByText("Completed tasks will appear here."),
+    ).not.toBeNull();
+    expect(setTaskStatus).toHaveBeenCalledWith({
+      taskId: completedTask.id,
+      status: "open",
+    });
+    expect(screen.getByRole("button", { name: "Completed 0" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "All tasks 1" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "All tasks 1" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Complete task: Archived task",
+      }),
+    ).not.toBeNull();
+  });
+
   it("renders the empty state after a successful read", async () => {
     render(createElement(App, { client: createClient() }));
 

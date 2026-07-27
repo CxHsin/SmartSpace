@@ -16,15 +16,20 @@ import {
 import type { TaskWorkspaceData } from "./workspace-loader";
 
 const ALL_TASKS = "all";
+const COMPLETED_TASKS = "completed";
 
 function countTasksByCategory(tasks: readonly TaskDto[]) {
   const counts = new Map<string, number>();
+  let completed = 0;
 
   for (const task of tasks) {
     counts.set(task.categoryId, (counts.get(task.categoryId) ?? 0) + 1);
+    if (task.status === "completed") {
+      completed += 1;
+    }
   }
 
-  return counts;
+  return { byCategory: counts, completed };
 }
 
 function TaskStatusMark({ status }: Pick<TaskDto, "status">) {
@@ -151,17 +156,28 @@ const TaskRow = memo(function TaskRow({
   );
 });
 
-function EmptyTaskList({ filtered }: { readonly filtered: boolean }) {
+function EmptyTaskList({
+  view,
+}: {
+  readonly view: "all" | "category" | "completed";
+}) {
+  const title =
+    view === "all"
+      ? "No tasks yet"
+      : view === "completed"
+        ? "No completed tasks"
+        : "No tasks in this category";
+  const description =
+    view === "all"
+      ? "Your list is clear."
+      : view === "completed"
+        ? "Completed tasks will appear here."
+        : "Choose another category to continue.";
+
   return (
     <div className="grid min-h-44 place-content-center px-6 text-center">
-      <p className="text-sm font-medium text-[var(--text-primary)]">
-        {filtered ? "No tasks in this category" : "No tasks yet"}
-      </p>
-      <p className="mt-1 text-xs text-[var(--text-muted)]">
-        {filtered
-          ? "Choose another category to continue."
-          : "Your list is clear."}
-      </p>
+      <p className="text-sm font-medium text-[var(--text-primary)]">{title}</p>
+      <p className="mt-1 text-xs text-[var(--text-muted)]">{description}</p>
     </div>
   );
 }
@@ -326,7 +342,7 @@ export function TaskWorkspace({
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
-  const [selectedCategoryId, setSelectedCategoryId] = useState(ALL_TASKS);
+  const [selectedViewId, setSelectedViewId] = useState(ALL_TASKS);
   const categoryById = useMemo(
     () => new Map(data.categories.map((category) => [category.id, category])),
     [data.categories],
@@ -335,26 +351,41 @@ export function TaskWorkspace({
     () => countTasksByCategory(data.tasks),
     [data.tasks],
   );
-  const effectiveCategoryId =
-    selectedCategoryId === ALL_TASKS || categoryById.has(selectedCategoryId)
-      ? selectedCategoryId
+  const effectiveViewId =
+    selectedViewId === ALL_TASKS ||
+    selectedViewId === COMPLETED_TASKS ||
+    categoryById.has(selectedViewId)
+      ? selectedViewId
       : ALL_TASKS;
-  const visibleTasks = useMemo(
-    () =>
-      effectiveCategoryId === ALL_TASKS
-        ? data.tasks
-        : data.tasks.filter((task) => task.categoryId === effectiveCategoryId),
-    [data.tasks, effectiveCategoryId],
-  );
+  const visibleTasks = useMemo(() => {
+    if (effectiveViewId === ALL_TASKS) {
+      return data.tasks;
+    }
+
+    if (effectiveViewId === COMPLETED_TASKS) {
+      return data.tasks.filter((task) => task.status === "completed");
+    }
+
+    return data.tasks.filter((task) => task.categoryId === effectiveViewId);
+  }, [data.tasks, effectiveViewId]);
   const activeCategory =
-    effectiveCategoryId === ALL_TASKS
+    effectiveViewId === ALL_TASKS || effectiveViewId === COMPLETED_TASKS
       ? undefined
-      : categoryById.get(effectiveCategoryId);
+      : categoryById.get(effectiveViewId);
   const inboxCategory = data.categories.find(
     (category) => category.kind === "inbox",
   );
-  const defaultCreateCategoryId =
-    effectiveCategoryId === ALL_TASKS ? inboxCategory?.id : effectiveCategoryId;
+  const defaultCreateCategoryId = activeCategory?.id ?? inboxCategory?.id;
+  const viewTitle =
+    effectiveViewId === COMPLETED_TASKS
+      ? "Completed"
+      : (activeCategory?.name ?? "All tasks");
+  const emptyView =
+    effectiveViewId === ALL_TASKS
+      ? "all"
+      : effectiveViewId === COMPLETED_TASKS
+        ? "completed"
+        : "category";
 
   return (
     <section
@@ -369,13 +400,24 @@ export function TaskWorkspace({
           Tasks
         </p>
         <button
-          aria-current={effectiveCategoryId === ALL_TASKS ? "page" : undefined}
+          aria-current={effectiveViewId === ALL_TASKS ? "page" : undefined}
           className="nav-item"
-          onClick={() => setSelectedCategoryId(ALL_TASKS)}
+          onClick={() => setSelectedViewId(ALL_TASKS)}
           type="button"
         >
           <span className="truncate">All tasks</span>
           <span className="nav-count">{data.tasks.length}</span>
+        </button>
+        <button
+          aria-current={
+            effectiveViewId === COMPLETED_TASKS ? "page" : undefined
+          }
+          className="nav-item"
+          onClick={() => setSelectedViewId(COMPLETED_TASKS)}
+          type="button"
+        >
+          <span className="truncate">Completed</span>
+          <span className="nav-count">{taskCounts.completed}</span>
         </button>
 
         <p className="mt-5 px-2 pb-2 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
@@ -386,15 +428,15 @@ export function TaskWorkspace({
             <li key={category.id}>
               <button
                 aria-current={
-                  effectiveCategoryId === category.id ? "page" : undefined
+                  effectiveViewId === category.id ? "page" : undefined
                 }
                 className="nav-item"
-                onClick={() => setSelectedCategoryId(category.id)}
+                onClick={() => setSelectedViewId(category.id)}
                 type="button"
               >
                 <span className="truncate">{category.name}</span>
                 <span className="nav-count">
-                  {taskCounts.get(category.id) ?? 0}
+                  {taskCounts.byCategory.get(category.id) ?? 0}
                 </span>
               </button>
             </li>
@@ -404,9 +446,7 @@ export function TaskWorkspace({
 
       <div className="grid min-h-0 grid-rows-[auto_auto_1fr] bg-[var(--surface-raised)]">
         <header className="border-b border-[var(--border-subtle)] px-4 py-3">
-          <h2 className="truncate text-sm font-semibold">
-            {activeCategory?.name ?? "All tasks"}
-          </h2>
+          <h2 className="truncate text-sm font-semibold">{viewTitle}</h2>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
             {visibleTasks.length} {visibleTasks.length === 1 ? "task" : "tasks"}
           </p>
@@ -420,7 +460,7 @@ export function TaskWorkspace({
         )}
         <div className="min-h-0 overflow-y-auto">
           {visibleTasks.length === 0 ? (
-            <EmptyTaskList filtered={effectiveCategoryId !== ALL_TASKS} />
+            <EmptyTaskList view={emptyView} />
           ) : (
             <ul aria-label="Task list">
               {visibleTasks.map((task) => (
