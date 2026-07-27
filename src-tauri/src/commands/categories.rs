@@ -1,14 +1,22 @@
 use serde::Deserialize;
 use tauri::State;
+use uuid::Uuid;
 
 use super::CommandError;
 use crate::{
-    domain::{Category, CategoryName},
+    domain::{Category, CategoryId, CategoryName},
     storage::{DatabaseRuntimeError, DatabaseState},
 };
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateCategoryRequest {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RenameCategoryRequest {
+    category_id: String,
     name: String,
 }
 
@@ -18,6 +26,14 @@ pub(crate) fn create_category(
     request: CreateCategoryRequest,
 ) -> Result<Category, CommandError> {
     create_category_from_state(database_state.inner(), request)
+}
+
+#[tauri::command]
+pub(crate) fn rename_category(
+    database_state: State<'_, DatabaseState>,
+    request: RenameCategoryRequest,
+) -> Result<Category, CommandError> {
+    rename_category_from_state(database_state.inner(), request)
 }
 
 #[tauri::command]
@@ -50,6 +66,23 @@ fn create_category_from_state(
         .map_err(CommandError::from)
 }
 
+fn rename_category_from_state(
+    database_state: &DatabaseState,
+    request: RenameCategoryRequest,
+) -> Result<Category, CommandError> {
+    let category_id = Uuid::parse_str(&request.category_id)
+        .map(CategoryId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("categoryId must be a valid UUID"))?;
+    let name = CategoryName::new(request.name)
+        .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .rename_category(category_id, name.as_str())
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, sync::Arc, thread};
@@ -57,12 +90,147 @@ mod tests {
     use rusqlite::Connection;
     use uuid::Uuid;
 
-    use super::{create_category_from_state, list_categories_from_state, CreateCategoryRequest};
+    use super::{
+        create_category_from_state, list_categories_from_state, rename_category_from_state,
+        CreateCategoryRequest, RenameCategoryRequest,
+    };
     use crate::{
         commands::CommandErrorCode,
-        domain::CategoryId,
+        domain::{CategoryId, CategoryKind},
         storage::{DatabaseState, DATABASE_FILE_NAME},
     };
+
+    #[test]
+    fn rename_category_normalizes_and_persists_the_name() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let category = state.lock().unwrap().create_category("Old").unwrap();
+
+        let renamed =
+            rename_category_from_state(&state, rename_request(category.id(), "  New name  "))
+                .unwrap();
+        let idempotent =
+            rename_category_from_state(&state, rename_request(category.id(), "New name")).unwrap();
+
+        assert_eq!(renamed.name().as_str(), "New name");
+        assert_eq!(idempotent, renamed);
+        assert_eq!(
+            state.lock().unwrap().category(category.id()).unwrap(),
+            Some(renamed)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_category_preserves_the_inbox_identity_and_kind() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let renamed =
+            rename_category_from_state(&state, rename_request(CategoryId::INBOX, "Unsorted"))
+                .unwrap();
+
+        assert_eq!(renamed.id(), CategoryId::INBOX);
+        assert_eq!(renamed.kind(), CategoryKind::Inbox);
+        assert_eq!(renamed.name().as_str(), "Unsorted");
+        assert_eq!(
+            state.lock().unwrap().category(CategoryId::INBOX).unwrap(),
+            Some(renamed)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_category_rejects_invalid_input_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let category = state.lock().unwrap().create_category("Original").unwrap();
+
+        let invalid_id = rename_category_from_state(
+            &state,
+            RenameCategoryRequest {
+                category_id: "not-a-uuid".to_owned(),
+                name: "Valid".to_owned(),
+            },
+        )
+        .unwrap_err();
+        let blank_name =
+            rename_category_from_state(&state, rename_request(category.id(), " \t ")).unwrap_err();
+
+        assert_eq!(invalid_id.code, CommandErrorCode::InvalidInput);
+        assert_eq!(blank_name.code, CommandErrorCode::InvalidInput);
+        assert_eq!(
+            state.lock().unwrap().category(category.id()).unwrap(),
+            Some(category)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_category_reports_duplicate_and_missing_categories_with_stable_codes() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let first = state.lock().unwrap().create_category("École").unwrap();
+        let second = state.lock().unwrap().create_category("Personal").unwrap();
+
+        let duplicate =
+            rename_category_from_state(&state, rename_request(second.id(), "éCOLE")).unwrap_err();
+        let missing =
+            rename_category_from_state(&state, rename_request(CategoryId::new(), "Missing"))
+                .unwrap_err();
+
+        assert_eq!(duplicate.code, CommandErrorCode::DuplicateCategoryName);
+        assert_eq!(missing.code, CommandErrorCode::CategoryNotFound);
+        assert_eq!(
+            serde_json::to_value(duplicate).unwrap()["code"],
+            "duplicate_category_name"
+        );
+        assert_eq!(
+            serde_json::to_value(missing).unwrap()["code"],
+            "category_not_found"
+        );
+        assert_eq!(
+            state.lock().unwrap().category(first.id()).unwrap(),
+            Some(first)
+        );
+        assert_eq!(
+            state.lock().unwrap().category(second.id()).unwrap(),
+            Some(second)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_category_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO categories (id, name, position, kind)
+                 VALUES ('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Broken', 1, 'user')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = rename_category_from_state(&state, rename_request(CategoryId::INBOX, "Valid"))
+            .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn create_category_normalizes_and_persists_the_name() {
@@ -254,5 +422,12 @@ mod tests {
 
     fn temporary_root() -> std::path::PathBuf {
         std::env::temp_dir().join(format!("smartspace-command-{}", Uuid::new_v4()))
+    }
+
+    fn rename_request(category_id: CategoryId, name: &str) -> RenameCategoryRequest {
+        RenameCategoryRequest {
+            category_id: category_id.as_uuid().to_string(),
+            name: name.to_owned(),
+        }
     }
 }
