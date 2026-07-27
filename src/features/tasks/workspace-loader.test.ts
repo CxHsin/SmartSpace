@@ -54,6 +54,9 @@ describe("loadTaskWorkspace", () => {
       setTaskStatus: vi.fn(async () => {
         throw new Error("Workspace loader called setTaskStatus unexpectedly.");
       }),
+      renameTask: vi.fn(async () => {
+        throw new Error("Workspace loader called renameTask unexpectedly.");
+      }),
     };
 
     const loading = loadTaskWorkspace(client);

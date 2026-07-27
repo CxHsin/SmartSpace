@@ -193,3 +193,65 @@ describe("SmartSpaceClient set task status command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient rename task command", () => {
+  it("sends the exact readonly request and returns the complete task DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const renamedTask: TaskDto = {
+      ...tasks[0],
+      title: "Renamed task",
+      updatedAt: "2026-07-28T09:05:00.000000003Z",
+    };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return renamedTask as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({
+      taskId: tasks[0].id,
+      title: "  Keep backend normalization  ",
+    });
+
+    await expect(client.renameTask(input)).resolves.toEqual(renamedTask);
+    expect(input).toEqual({
+      taskId: tasks[0].id,
+      title: "  Keep backend normalization  ",
+    });
+    expect(calls).toEqual([
+      {
+        command: "rename_task",
+        args: {
+          request: {
+            taskId: tasks[0].id,
+            title: "  Keep backend normalization  ",
+          },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "title cannot be blank" },
+    { code: "task_not_found", message: "task does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .renameTask({ taskId: tasks[0].id, title: "Renamed task" })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

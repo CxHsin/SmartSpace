@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 25（任务完成/恢复交互）已提交并推送；模块 26 待登记。
+- 模块 26（前端任务重命名 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
 
 ## Current Goal
 
@@ -55,11 +55,16 @@
 
 ## In Progress
 
-- None.
+- **模块 26：前端任务重命名 IPC 客户端**（Ready for delivery）
+  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `RenameTaskInput` 与 `renameTask`，只接通已有 Rust `rename_task` command；不加入行内编辑 UI、保存反馈、重命名分类或其他任务写操作。
+  - 验收条件：输入类型只读；客户端精确调用 `rename_task` 并传递 `{ request: { taskId, title } }`，不得在前端修剪或改写标题；调用不改写冻结输入并返回完整 `TaskDto`；`invalid_input`、`task_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有读取、创建和状态命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
+  - 实现进度：已新增只读 `RenameTaskInput`、`SmartSpaceClient.renameTask` 与 `rename_task` 精确 IPC 调用；标题原样传递给 Rust 领域层，测试覆盖冻结输入、完整 DTO、精确请求及 `invalid_input`/`task_not_found` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外重命名调用；聚焦客户端测试 12/12、全量前端测试 28/28 和 typecheck 已通过。
+  - 验证进度：28 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
+  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；TypeScript 类型、Tauri 参数形状、Rust serde 契约、原始标题透传、完整 DTO 返回和统一错误边界均核对通过，聚焦 3 个测试文件 27/27。
 
 ## Next Up
 
-1. 模块 26：按最小可验收范围确定并登记。
+1. 提交并推送模块 26，然后记录交付提交哈希。
 
 ## Open Questions
 
