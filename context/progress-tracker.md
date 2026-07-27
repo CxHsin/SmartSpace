@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 23（基础添加任务交互）已提交并推送；模块 24 待登记。
+- 模块 24（前端任务状态 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
 
 ## Current Goal
 
@@ -53,11 +53,16 @@
 
 ## In Progress
 
-- None.
+- **模块 24：前端任务状态 IPC 客户端**（Ready for delivery）
+  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `SetTaskStatusInput` 与 `setTaskStatus`，只接通已有 Rust `set_task_status` command；不加入完成/恢复按钮、乐观更新、动画或其他任务写操作。
+  - 验收条件：输入只读且状态复用 `TaskStatus` 联合类型；客户端精确调用 `set_task_status` 并传递 `{ request: { taskId, status } }`；调用不改写输入对象并返回完整 `TaskDto`；`invalid_input`、`task_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有读取和创建命令行为不回归。
+  - 实现进度：已新增 `SetTaskStatusInput`、`SmartSpaceClient.setTaskStatus` 与 `set_task_status` 精确 IPC 调用；聚焦测试覆盖冻结输入、完整 DTO、精确请求及 `invalid_input`/`task_not_found` 错误，所有测试替身已显式拒绝意外状态写入。当前 21 个前端测试、format/typecheck/lint 通过。
+  - 验证进度：21 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
+  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；TypeScript 类型、Tauri 参数形状、Rust serde 契约、统一错误边界和测试替身均核对通过。
 
 ## Next Up
 
-1. 模块 24：按最小可验收范围确定并登记。
+1. 提交并推送模块 24，然后记录交付提交哈希。
 
 ## Open Questions
 

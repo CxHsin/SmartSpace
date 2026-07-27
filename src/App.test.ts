@@ -46,6 +46,10 @@ function createTask(
   };
 }
 
+const unexpectedSetTaskStatus: SmartSpaceClient["setTaskStatus"] = async () => {
+  throw new Error("Workspace test called setTaskStatus unexpectedly.");
+};
+
 function createClient(
   taskResult: readonly TaskDto[] = [],
   createTask: SmartSpaceClient["createTask"] = async () => {
@@ -56,6 +60,7 @@ function createClient(
     listCategories: vi.fn(async () => categories),
     listTasks: vi.fn(async () => taskResult),
     createTask,
+    setTaskStatus: unexpectedSetTaskStatus,
   };
 }
 
@@ -102,6 +107,7 @@ describe("App task workspace lifecycle", () => {
           "Read-only workspace test called createTask unexpectedly.",
         );
       },
+      setTaskStatus: unexpectedSetTaskStatus,
     };
     const currentClient = createClient([
       createTask(
@@ -188,6 +194,7 @@ describe("App task workspace lifecycle", () => {
       createTask: vi.fn(async () => {
         throw new Error("Loading session exposed createTask unexpectedly.");
       }),
+      setTaskStatus: unexpectedSetTaskStatus,
     };
     const pendingBCategories = createDeferred<readonly CategoryDto[]>();
     const pendingBTasks = createDeferred<readonly TaskDto[]>();
@@ -197,6 +204,7 @@ describe("App task workspace lifecycle", () => {
       createTask: vi.fn(async () => {
         throw new Error("Loading session exposed createTask unexpectedly.");
       }),
+      setTaskStatus: unexpectedSetTaskStatus,
     };
     const rendered = render(createElement(App, { client: clientA }));
 
@@ -250,6 +258,7 @@ describe("App task workspace lifecycle", () => {
           "Read-only workspace test called createTask unexpectedly.",
         );
       }),
+      setTaskStatus: unexpectedSetTaskStatus,
     };
 
     render(createElement(App, { client }));

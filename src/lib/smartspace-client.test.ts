@@ -141,3 +141,55 @@ describe("SmartSpaceClient create task command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient set task status command", () => {
+  it("sends the exact readonly request and returns the complete task DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const reopenedTask: TaskDto = { ...tasks[0], status: "open" };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return reopenedTask as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({
+      taskId: tasks[0].id,
+      status: "open" as const,
+    });
+
+    await expect(client.setTaskStatus(input)).resolves.toEqual(reopenedTask);
+    expect(input).toEqual({ taskId: tasks[0].id, status: "open" });
+    expect(calls).toEqual([
+      {
+        command: "set_task_status",
+        args: {
+          request: { taskId: tasks[0].id, status: "open" },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "status is invalid" },
+    { code: "task_not_found", message: "task does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .setTaskStatus({ taskId: tasks[0].id, status: "completed" })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

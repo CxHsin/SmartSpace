@@ -26,6 +26,11 @@ export interface CreateTaskInput {
   readonly categoryId: string;
 }
 
+export interface SetTaskStatusInput {
+  readonly taskId: string;
+  readonly status: TaskStatus;
+}
+
 export type CommandErrorCode =
   | "invalid_input"
   | "category_not_found"
@@ -55,6 +60,7 @@ export interface SmartSpaceClient {
   listCategories(): Promise<readonly CategoryDto[]>;
   listTasks(): Promise<readonly TaskDto[]>;
   createTask(input: CreateTaskInput): Promise<TaskDto>;
+  setTaskStatus(input: SetTaskStatusInput): Promise<TaskDto>;
 }
 
 const commandErrorCodes = new Set<CommandErrorCode>([
@@ -115,6 +121,8 @@ export function createSmartSpaceClient(
       invokeTyped<readonly CategoryDto[]>("list_categories"),
     listTasks: () => invokeTyped<readonly TaskDto[]>("list_tasks"),
     createTask: (request) => invokeTyped<TaskDto>("create_task", { request }),
+    setTaskStatus: (request) =>
+      invokeTyped<TaskDto>("set_task_status", { request }),
   };
 }
 
