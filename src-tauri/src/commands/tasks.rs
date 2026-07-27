@@ -23,6 +23,13 @@ pub(crate) struct SetTaskStatusRequest {
     status: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RenameTaskRequest {
+    task_id: String,
+    title: String,
+}
+
 #[tauri::command]
 pub(crate) fn create_task(
     database_state: State<'_, DatabaseState>,
@@ -37,6 +44,14 @@ pub(crate) fn set_task_status(
     request: SetTaskStatusRequest,
 ) -> Result<Task, CommandError> {
     set_task_status_from_state(database_state.inner(), request, Utc::now())
+}
+
+#[tauri::command]
+pub(crate) fn rename_task(
+    database_state: State<'_, DatabaseState>,
+    request: RenameTaskRequest,
+) -> Result<Task, CommandError> {
+    rename_task_from_state(database_state.inner(), request, Utc::now())
 }
 
 #[tauri::command]
@@ -97,6 +112,24 @@ fn set_task_status_from_state(
         .map_err(CommandError::from)
 }
 
+fn rename_task_from_state(
+    database_state: &DatabaseState,
+    request: RenameTaskRequest,
+    now: DateTime<Utc>,
+) -> Result<Task, CommandError> {
+    let task_id = Uuid::parse_str(&request.task_id)
+        .map(TaskId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("taskId must be a valid UUID"))?;
+    let title = TaskTitle::new(request.title)
+        .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .rename_task(task_id, title.as_str(), now)
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -106,9 +139,137 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        create_task_from_state, list_tasks_from_state, set_task_status_from_state,
-        CreateTaskRequest, SetTaskStatusRequest,
+        create_task_from_state, list_tasks_from_state, rename_task_from_state,
+        set_task_status_from_state, CreateTaskRequest, RenameTaskRequest, SetTaskStatusRequest,
     };
+
+    #[test]
+    fn rename_task_normalizes_persists_and_preserves_idempotent_time() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T03:00:00.000000001Z");
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task("Old", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let renamed = rename_task_from_state(
+            &state,
+            rename_request(task.id(), "  New title  "),
+            timestamp("2026-07-28T03:00:01.000000002Z"),
+        )
+        .unwrap();
+        let idempotent = rename_task_from_state(
+            &state,
+            rename_request(task.id(), "New title"),
+            timestamp("2026-07-28T03:00:02.000000003Z"),
+        )
+        .unwrap();
+
+        assert_eq!(renamed.title().as_str(), "New title");
+        assert_eq!(
+            renamed.updated_at(),
+            timestamp("2026-07-28T03:00:01.000000002Z")
+        );
+        assert_eq!(idempotent.updated_at(), renamed.updated_at());
+        assert_eq!(
+            state.lock().unwrap().task(task.id()).unwrap(),
+            Some(idempotent)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_task_rejects_invalid_input_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T03:00:00.000000001Z");
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task("Original", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let invalid_id = rename_task_from_state(
+            &state,
+            RenameTaskRequest {
+                task_id: "not-a-uuid".to_owned(),
+                title: "Valid".to_owned(),
+            },
+            timestamp("2026-07-28T03:00:01.000000002Z"),
+        )
+        .unwrap_err();
+        let blank_title = rename_task_from_state(
+            &state,
+            rename_request(task.id(), " \t "),
+            timestamp("2026-07-28T03:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(invalid_id.code, CommandErrorCode::InvalidInput);
+        assert_eq!(blank_title.code, CommandErrorCode::InvalidInput);
+        assert_eq!(
+            state.lock().unwrap().task(task.id()).unwrap().unwrap(),
+            task
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_task_reports_a_missing_task_with_a_stable_code() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = rename_task_from_state(
+            &state,
+            rename_request(crate::domain::TaskId::new(), "Title"),
+            timestamp("2026-07-28T03:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::TaskNotFound);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_task_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, status, due_date, category_id, position, created_at, updated_at
+                 ) VALUES (?1, 'Broken', 'open', NULL, ?2, 0, ?3, ?3)",
+                params![
+                    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    CategoryId::INBOX.as_uuid().to_string(),
+                    "2026-07-28T03:00:00.000000001Z"
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = rename_task_from_state(
+            &state,
+            rename_request(crate::domain::TaskId::new(), "Title"),
+            timestamp("2026-07-28T03:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
     use crate::{
         commands::CommandErrorCode,
         domain::CategoryId,
@@ -474,6 +635,13 @@ mod tests {
         SetTaskStatusRequest {
             task_id: task_id.as_uuid().to_string(),
             status: status.to_owned(),
+        }
+    }
+
+    fn rename_request(task_id: crate::domain::TaskId, title: &str) -> RenameTaskRequest {
+        RenameTaskRequest {
+            task_id: task_id.as_uuid().to_string(),
+            title: title.to_owned(),
         }
     }
 
