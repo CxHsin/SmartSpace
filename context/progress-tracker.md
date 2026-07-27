@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 10（创建分类 Tauri command）已通过验证和独立 review，正在完成提交与推送。
+- 模块 10（创建分类 Tauri command）已提交并推送；模块 11 待登记。
 
 ## Current Goal
 
@@ -79,5 +79,6 @@
 - 模块 7 已以提交 `13d70f6` 推送到 `origin/main`。
 - 模块 8 已以提交 `6e12cc2` 推送到 `origin/main`。
 - 模块 9 已以提交 `244d27f` 推送到 `origin/main`。
+- 模块 10 已以提交 `ae62bba` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
