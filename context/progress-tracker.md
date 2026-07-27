@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 19（任务删除 Tauri command）已提交并推送；模块 20 待登记。
+- 模块 20（前端只读 IPC 客户端）已通过独立 review，待独立提交并推送。
 
 ## Current Goal
 
@@ -49,15 +49,22 @@
 
 ## In Progress
 
-- None.
+- **模块 20：前端只读 IPC 客户端**（`Review Approved; Pending Delivery`）
+  - 范围：新增前端 `SmartSpaceClient`，为 `list_categories` 与 `list_tasks` 提供强类型 DTO 和无参数 invoke 封装，并把 Tauri command 的结构化拒绝统一转换为可判别的前端错误。
+  - 验收：两个读取方法调用精确 command 名且不发送多余参数；分类与任务 DTO 覆盖当前 Rust 序列化字段；已知结构化错误保留 code/message，未知拒绝转换为稳定 `unknown` 错误；客户端支持测试注入且生产默认使用 Tauri `invoke`。
+  - 非范围：写命令、React 数据加载、缓存/状态管理、视觉 UI 与 Amicro 动画。
+  - 实现状态：分类/任务 DTO、已知错误码联合类型、`SmartSpaceCommandError`、可注入客户端工厂、生产 Tauri invoke 默认值及 3 个聚焦测试已完成。
+  - 验证：3/3 聚焦测试与全量 4 个前端测试通过；Prettier、ESLint、TypeScript、Vite production build、全量 108 个 Rust 测试、Rust fmt/严格 Clippy/check 及 `tauri build --no-bundle` 全部通过。
+  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无 findings；适用的 `vercel-react-best-practices` 直接导入/bundle 规则、DTO/错误码契约、默认实例副作用与测试覆盖均通过审查，reviewer 未修改工作树。
 
 ## Next Up
 
-1. 模块 20：按最小可验收范围确定并登记。
+1. 完成模块 20 的实现、验证、独立 review、提交与推送。
 
 ## Open Questions
 
 - 对首个兼容性发布门槛，除受控测试程序外还要求哪些第三方应用成功嵌入。
+- 任务短暂撤销期间若原分类已删除或原位置已不可恢复：应回收到收件箱/最近有效位置，还是让撤销失败并提示用户。
 
 ## Architecture Decisions
 
