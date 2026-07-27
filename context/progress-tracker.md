@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 28（前端任务跨分类移动 IPC 客户端）已提交并推送；模块 29 待登记。
+- 模块 29（前端分类内任务重排 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
 
 ## Current Goal
 
@@ -58,11 +58,16 @@
 
 ## In Progress
 
-- None.
+- **模块 29：前端分类内任务重排 IPC 客户端**（Ready for delivery）
+  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `ReorderTasksInput` 与 `reorderTasks`，只接通已有 Rust `reorder_tasks` command；不加入拖拽 UI、键盘排序、跨分类移动或其他任务写操作。
+  - 验收条件：输入对象与 `orderedTaskIds` 序列均为只读；客户端精确调用 `reorder_tasks` 并传递 `{ request: { categoryId, orderedTaskIds } }`，调用不改写冻结输入并返回完整只读 `TaskDto` 数组；`invalid_input`、`category_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
+  - 实现进度：已新增只读 `ReorderTasksInput`、`SmartSpaceClient.reorderTasks` 与 `reorder_tasks` 精确 IPC 调用；输入对象和 ID 序列均保持只读且原样传递，测试覆盖冻结完整序列、完整重排后 DTO 数组、精确请求及 `invalid_input`/`category_not_found` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外重排调用；聚焦客户端测试 23/23、全量前端测试 39/39 和 typecheck 已通过。
+  - 验证进度：39 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
+  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；只读输入与 ID 序列、`reorder_tasks` 参数封装、完整只读 `TaskDto` 数组和错误边界均核对通过，聚焦测试 38/38。
 
 ## Next Up
 
-1. 模块 29：按最小可验收范围确定并登记。
+1. 提交并推送模块 29，然后记录交付提交哈希。
 
 ## Open Questions
 

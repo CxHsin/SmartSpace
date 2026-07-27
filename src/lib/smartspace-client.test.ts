@@ -410,3 +410,74 @@ describe("SmartSpaceClient move task command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient reorder tasks command", () => {
+  it("sends the exact readonly order and returns complete task DTOs", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const secondTask: TaskDto = {
+      ...tasks[0],
+      id: "10000000-0000-0000-0000-000000000002",
+      title: "Second task",
+      position: 1,
+    };
+    const reorderedTasks: readonly TaskDto[] = [
+      { ...secondTask, position: 0 },
+      { ...tasks[0], position: 1 },
+    ];
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return reorderedTasks as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const orderedTaskIds = Object.freeze([secondTask.id, tasks[0].id]);
+    const input = Object.freeze({
+      categoryId: categories[0].id,
+      orderedTaskIds,
+    });
+
+    await expect(client.reorderTasks(input)).resolves.toEqual(reorderedTasks);
+    expect(input).toEqual({
+      categoryId: categories[0].id,
+      orderedTaskIds: [secondTask.id, tasks[0].id],
+    });
+    expect(calls).toEqual([
+      {
+        command: "reorder_tasks",
+        args: {
+          request: {
+            categoryId: categories[0].id,
+            orderedTaskIds: [secondTask.id, tasks[0].id],
+          },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "task order is incomplete" },
+    { code: "category_not_found", message: "category does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .reorderTasks({
+          categoryId: categories[0].id,
+          orderedTaskIds: [tasks[0].id],
+        })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

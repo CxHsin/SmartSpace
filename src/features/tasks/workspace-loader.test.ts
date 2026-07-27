@@ -63,6 +63,9 @@ describe("loadTaskWorkspace", () => {
       moveTask: vi.fn(async () => {
         throw new Error("Workspace loader called moveTask unexpectedly.");
       }),
+      reorderTasks: vi.fn(async () => {
+        throw new Error("Workspace loader called reorderTasks unexpectedly.");
+      }),
     };
 
     const loading = loadTaskWorkspace(client);

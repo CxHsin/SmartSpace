@@ -46,6 +46,11 @@ export interface MoveTaskInput {
   readonly categoryId: string;
 }
 
+export interface ReorderTasksInput {
+  readonly categoryId: string;
+  readonly orderedTaskIds: readonly string[];
+}
+
 export type CommandErrorCode =
   | "invalid_input"
   | "category_not_found"
@@ -79,6 +84,7 @@ export interface SmartSpaceClient {
   renameTask(input: RenameTaskInput): Promise<TaskDto>;
   setTaskDueDate(input: SetTaskDueDateInput): Promise<TaskDto>;
   moveTask(input: MoveTaskInput): Promise<TaskDto>;
+  reorderTasks(input: ReorderTasksInput): Promise<readonly TaskDto[]>;
 }
 
 const commandErrorCodes = new Set<CommandErrorCode>([
@@ -145,6 +151,8 @@ export function createSmartSpaceClient(
     setTaskDueDate: (request) =>
       invokeTyped<TaskDto>("set_task_due_date", { request }),
     moveTask: (request) => invokeTyped<TaskDto>("move_task", { request }),
+    reorderTasks: (request) =>
+      invokeTyped<readonly TaskDto[]>("reorder_tasks", { request }),
   };
 }
 
