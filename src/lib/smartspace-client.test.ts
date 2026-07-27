@@ -585,3 +585,70 @@ describe("SmartSpaceClient create category command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient rename category command", () => {
+  it("sends the exact readonly request and returns the complete category DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const renamedCategory: CategoryDto = {
+      ...categories[0],
+      name: "Main inbox",
+    };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return renamedCategory as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({
+      categoryId: categories[0].id,
+      name: "  Main inbox  ",
+    });
+
+    await expect(client.renameCategory(input)).resolves.toEqual(
+      renamedCategory,
+    );
+    expect(input).toEqual({
+      categoryId: categories[0].id,
+      name: "  Main inbox  ",
+    });
+    expect(calls).toEqual([
+      {
+        command: "rename_category",
+        args: {
+          request: {
+            categoryId: categories[0].id,
+            name: "  Main inbox  ",
+          },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "category name cannot be blank" },
+    {
+      code: "duplicate_category_name",
+      message: "category name already exists",
+    },
+    { code: "category_not_found", message: "category does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .renameCategory({ categoryId: categories[0].id, name: "Main inbox" })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

@@ -72,6 +72,9 @@ describe("loadTaskWorkspace", () => {
       createCategory: vi.fn(async () => {
         throw new Error("Workspace loader called createCategory unexpectedly.");
       }),
+      renameCategory: vi.fn(async () => {
+        throw new Error("Workspace loader called renameCategory unexpectedly.");
+      }),
     };
 
     const loading = loadTaskWorkspace(client);

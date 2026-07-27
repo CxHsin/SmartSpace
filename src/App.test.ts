@@ -76,6 +76,11 @@ const unexpectedCreateCategory: SmartSpaceClient["createCategory"] =
     throw new Error("Workspace test called createCategory unexpectedly.");
   };
 
+const unexpectedRenameCategory: SmartSpaceClient["renameCategory"] =
+  async () => {
+    throw new Error("Workspace test called renameCategory unexpectedly.");
+  };
+
 function createClient(
   taskResult: readonly TaskDto[] = [],
   createTask: SmartSpaceClient["createTask"] = async () => {
@@ -94,6 +99,7 @@ function createClient(
     reorderTasks: unexpectedReorderTasks,
     deleteTask: unexpectedDeleteTask,
     createCategory: unexpectedCreateCategory,
+    renameCategory: unexpectedRenameCategory,
   };
 }
 
@@ -147,6 +153,7 @@ describe("App task workspace lifecycle", () => {
       reorderTasks: unexpectedReorderTasks,
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
+      renameCategory: unexpectedRenameCategory,
     };
     const currentClient = createClient([
       createTask(
@@ -240,6 +247,7 @@ describe("App task workspace lifecycle", () => {
       reorderTasks: unexpectedReorderTasks,
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
+      renameCategory: unexpectedRenameCategory,
     };
     const pendingBCategories = createDeferred<readonly CategoryDto[]>();
     const pendingBTasks = createDeferred<readonly TaskDto[]>();
@@ -256,6 +264,7 @@ describe("App task workspace lifecycle", () => {
       reorderTasks: unexpectedReorderTasks,
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
+      renameCategory: unexpectedRenameCategory,
     };
     const rendered = render(createElement(App, { client: clientA }));
 
@@ -316,6 +325,7 @@ describe("App task workspace lifecycle", () => {
       reorderTasks: unexpectedReorderTasks,
       deleteTask: unexpectedDeleteTask,
       createCategory: unexpectedCreateCategory,
+      renameCategory: unexpectedRenameCategory,
     };
 
     render(createElement(App, { client }));

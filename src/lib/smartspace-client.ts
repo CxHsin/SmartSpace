@@ -59,6 +59,11 @@ export interface CreateCategoryInput {
   readonly name: string;
 }
 
+export interface RenameCategoryInput {
+  readonly categoryId: string;
+  readonly name: string;
+}
+
 export type CommandErrorCode =
   | "invalid_input"
   | "category_not_found"
@@ -95,6 +100,7 @@ export interface SmartSpaceClient {
   reorderTasks(input: ReorderTasksInput): Promise<readonly TaskDto[]>;
   deleteTask(input: DeleteTaskInput): Promise<TaskDto>;
   createCategory(input: CreateCategoryInput): Promise<CategoryDto>;
+  renameCategory(input: RenameCategoryInput): Promise<CategoryDto>;
 }
 
 const commandErrorCodes = new Set<CommandErrorCode>([
@@ -166,6 +172,8 @@ export function createSmartSpaceClient(
     deleteTask: (request) => invokeTyped<TaskDto>("delete_task", { request }),
     createCategory: (request) =>
       invokeTyped<CategoryDto>("create_category", { request }),
+    renameCategory: (request) =>
+      invokeTyped<CategoryDto>("rename_category", { request }),
   };
 }
 
