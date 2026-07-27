@@ -52,6 +52,12 @@ pub(crate) struct ReorderTasksRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeleteTaskRequest {
+    task_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum RequiredOptionalDate {
     Date(String),
@@ -104,6 +110,14 @@ pub(crate) fn reorder_tasks(
     request: ReorderTasksRequest,
 ) -> Result<Vec<Task>, CommandError> {
     reorder_tasks_from_state(database_state.inner(), request, Utc::now())
+}
+
+#[tauri::command]
+pub(crate) fn delete_task(
+    database_state: State<'_, DatabaseState>,
+    request: DeleteTaskRequest,
+) -> Result<Task, CommandError> {
+    delete_task_from_state(database_state.inner(), request)
 }
 
 #[tauri::command]
@@ -263,6 +277,21 @@ fn reorder_tasks_from_state(
         })
 }
 
+fn delete_task_from_state(
+    database_state: &DatabaseState,
+    request: DeleteTaskRequest,
+) -> Result<Task, CommandError> {
+    let task_id = Uuid::parse_str(&request.task_id)
+        .map(TaskId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("taskId must be a valid UUID"))?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .delete_task(task_id)
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -272,11 +301,169 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        create_task_from_state, list_tasks_from_state, move_task_from_state,
-        rename_task_from_state, reorder_tasks_from_state, set_task_due_date_from_state,
-        set_task_status_from_state, CreateTaskRequest, MoveTaskRequest, RenameTaskRequest,
-        ReorderTasksRequest, RequiredOptionalDate, SetTaskDueDateRequest, SetTaskStatusRequest,
+        create_task_from_state, delete_task_from_state, list_tasks_from_state,
+        move_task_from_state, rename_task_from_state, reorder_tasks_from_state,
+        set_task_due_date_from_state, set_task_status_from_state, CreateTaskRequest,
+        DeleteTaskRequest, MoveTaskRequest, RenameTaskRequest, ReorderTasksRequest,
+        RequiredOptionalDate, SetTaskDueDateRequest, SetTaskStatusRequest,
     };
+
+    #[test]
+    fn delete_task_returns_the_complete_snapshot_and_compacts_its_category() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T08:00:00.000000001Z");
+        let due_at = timestamp("2026-07-28T08:00:01.000000002Z");
+        let completed_at = timestamp("2026-07-28T08:00:02.000000003Z");
+        let work = state.lock().unwrap().create_category("Work").unwrap();
+        let first = state
+            .lock()
+            .unwrap()
+            .create_task("First", CategoryId::INBOX, created_at)
+            .unwrap();
+        let second = state
+            .lock()
+            .unwrap()
+            .create_task("Second", CategoryId::INBOX, created_at)
+            .unwrap();
+        let other = state
+            .lock()
+            .unwrap()
+            .create_task("Other", work.id(), created_at)
+            .unwrap();
+        state
+            .lock()
+            .unwrap()
+            .set_task_due_date(
+                first.id(),
+                Some(NaiveDate::from_ymd_opt(2026, 8, 15).unwrap()),
+                due_at,
+            )
+            .unwrap();
+        let expected = state
+            .lock()
+            .unwrap()
+            .set_task_status(
+                first.id(),
+                crate::domain::TaskStatus::Completed,
+                completed_at,
+            )
+            .unwrap();
+
+        let deleted = delete_task_from_state(&state, delete_request(first.id())).unwrap();
+
+        assert_eq!(deleted, expected);
+        assert_eq!(
+            serde_json::to_value(&deleted).unwrap(),
+            serde_json::json!({
+                "id": first.id().as_uuid().to_string(),
+                "title": "First",
+                "status": "completed",
+                "dueDate": "2026-08-15",
+                "categoryId": CategoryId::INBOX.as_uuid().to_string(),
+                "position": 0,
+                "createdAt": "2026-07-28T08:00:00.000000001Z",
+                "updatedAt": "2026-07-28T08:00:02.000000003Z"
+            })
+        );
+        assert_eq!(state.lock().unwrap().task(first.id()).unwrap(), None);
+        let inbox_tasks = state
+            .lock()
+            .unwrap()
+            .tasks_in_category(CategoryId::INBOX)
+            .unwrap();
+        assert_eq!(inbox_tasks.len(), 1);
+        assert_eq!(inbox_tasks[0].id(), second.id());
+        assert_eq!(inbox_tasks[0].position(), 0);
+        assert_eq!(
+            state.lock().unwrap().tasks_in_category(work.id()).unwrap(),
+            vec![other]
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_task_rejects_invalid_ids_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task(
+                "Task",
+                CategoryId::INBOX,
+                timestamp("2026-07-28T08:00:00.000000001Z"),
+            )
+            .unwrap();
+
+        let error = delete_task_from_state(
+            &state,
+            DeleteTaskRequest {
+                task_id: "not-a-uuid".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::InvalidInput);
+        assert_eq!(state.lock().unwrap().task(task.id()).unwrap(), Some(task));
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_task_reports_a_missing_task_with_a_stable_code() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = delete_task_from_state(&state, delete_request(crate::domain::TaskId::new()))
+            .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::TaskNotFound);
+        assert_eq!(
+            serde_json::to_value(error).unwrap()["code"],
+            "task_not_found"
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_task_keeps_persisted_corruption_and_rows_unchanged() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, status, due_date, category_id, position, created_at, updated_at
+                 ) VALUES (?1, 'Broken', 'open', NULL, ?2, 0, ?3, ?3)",
+                params![
+                    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    CategoryId::INBOX.as_uuid().to_string(),
+                    "2026-07-28T08:00:00.000000001Z"
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = delete_task_from_state(&state, delete_request(crate::domain::TaskId::new()))
+            .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+        drop(state);
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        let task_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(task_count, 1);
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn reorder_tasks_persists_the_complete_requested_order() {
@@ -1360,6 +1547,12 @@ mod tests {
                 .iter()
                 .map(|id| id.as_uuid().to_string())
                 .collect(),
+        }
+    }
+
+    fn delete_request(task_id: crate::domain::TaskId) -> DeleteTaskRequest {
+        DeleteTaskRequest {
+            task_id: task_id.as_uuid().to_string(),
         }
     }
 

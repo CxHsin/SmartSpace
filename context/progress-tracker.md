@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 18（分类删除 Tauri command）已提交并推送；模块 19 待登记。
+- 模块 19（任务删除 Tauri command）已通过独立 review，待独立提交并推送。
 
 ## Current Goal
 
@@ -48,11 +48,17 @@
 
 ## In Progress
 
-- None.
+- **模块 19：任务删除 Tauri command**（`Review Approved; Pending Delivery`）
+  - 范围：新增并注册 `delete_task`，接收 `taskId`；command 层在获取数据库锁前校验 UUID，调用现有 `Database::delete_task`，并返回包含全部原始字段的被删 `Task`，作为后续短暂撤销流程的可靠快照。
+  - 验收：删除任务后同分类后续位置连续压缩，其他分类不变；返回 DTO 完整保留标题、状态、截止日期、分类、原位置和纳秒时间戳；非法 UUID 不产生写入；缺失任务返回 `task_not_found`；持久损坏返回 `data_corrupt` 且零写入。
+  - 非范围：撤销恢复、撤销时限、批量删除与 React UI。
+  - 实现状态：command DTO、锁前 UUID 校验、仓库调用、invoke handler 注册及 4 个聚焦测试已完成。
+  - 验证：4/4 聚焦测试与全量 108 个 Rust 测试通过；Rust fmt、全目标全特性 Clippy（`-D warnings`）及 check 通过；前端 Prettier、ESLint、TypeScript、1/1 Vitest、Vite production build 通过；`tauri build --no-bundle` 通过并生成 release executable。
+  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无 findings；reviewer 独立复跑 108 个 Rust 测试、fmt、全目标全特性严格 Clippy 与 diff check 均通过，未修改工作树。
 
 ## Next Up
 
-1. 模块 19：按最小可验收范围确定并登记。
+1. 完成模块 19 的实现、验证、独立 review、提交与推送。
 
 ## Open Questions
 
