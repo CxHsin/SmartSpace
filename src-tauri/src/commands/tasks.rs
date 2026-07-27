@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::CommandError;
 use crate::{
     domain::{CategoryId, Task, TaskId, TaskStatus, TaskTitle},
-    storage::{DatabaseRuntimeError, DatabaseState},
+    storage::{DatabaseRuntimeError, DatabaseState, StorageError},
 };
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +42,13 @@ pub(crate) struct SetTaskDueDateRequest {
 pub(crate) struct MoveTaskRequest {
     task_id: String,
     category_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReorderTasksRequest {
+    category_id: String,
+    ordered_task_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +96,14 @@ pub(crate) fn move_task(
     request: MoveTaskRequest,
 ) -> Result<Task, CommandError> {
     move_task_from_state(database_state.inner(), request, Utc::now())
+}
+
+#[tauri::command]
+pub(crate) fn reorder_tasks(
+    database_state: State<'_, DatabaseState>,
+    request: ReorderTasksRequest,
+) -> Result<Vec<Task>, CommandError> {
+    reorder_tasks_from_state(database_state.inner(), request, Utc::now())
 }
 
 #[tauri::command]
@@ -221,6 +236,33 @@ fn move_task_from_state(
         .map_err(CommandError::from)
 }
 
+fn reorder_tasks_from_state(
+    database_state: &DatabaseState,
+    request: ReorderTasksRequest,
+    now: DateTime<Utc>,
+) -> Result<Vec<Task>, CommandError> {
+    let category_id = Uuid::parse_str(&request.category_id)
+        .map(CategoryId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("categoryId must be a valid UUID"))?;
+    let ordered_task_ids = request
+        .ordered_task_ids
+        .iter()
+        .map(|value| {
+            Uuid::parse_str(value)
+                .map(TaskId::from_uuid)
+                .map_err(|_| CommandError::invalid_input("orderedTaskIds must contain valid UUIDs"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .reorder_tasks(category_id, &ordered_task_ids, now)
+        .map_err(|error| match error {
+            StorageError::InvalidTaskOrder => CommandError::invalid_input(error.to_string()),
+            error => CommandError::from(DatabaseRuntimeError::from(error)),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -231,10 +273,210 @@ mod tests {
 
     use super::{
         create_task_from_state, list_tasks_from_state, move_task_from_state,
-        rename_task_from_state, set_task_due_date_from_state, set_task_status_from_state,
-        CreateTaskRequest, MoveTaskRequest, RenameTaskRequest, RequiredOptionalDate,
-        SetTaskDueDateRequest, SetTaskStatusRequest,
+        rename_task_from_state, reorder_tasks_from_state, set_task_due_date_from_state,
+        set_task_status_from_state, CreateTaskRequest, MoveTaskRequest, RenameTaskRequest,
+        ReorderTasksRequest, RequiredOptionalDate, SetTaskDueDateRequest, SetTaskStatusRequest,
     };
+
+    #[test]
+    fn reorder_tasks_persists_the_complete_requested_order() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T06:00:00.000000001Z");
+        let reordered_at = timestamp("2026-07-28T06:00:01.000000002Z");
+        let first = state
+            .lock()
+            .unwrap()
+            .create_task("First", CategoryId::INBOX, created_at)
+            .unwrap();
+        let second = state
+            .lock()
+            .unwrap()
+            .create_task("Second", CategoryId::INBOX, created_at)
+            .unwrap();
+        let third = state
+            .lock()
+            .unwrap()
+            .create_task("Third", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let reordered = reorder_tasks_from_state(
+            &state,
+            reorder_request(CategoryId::INBOX, &[third.id(), first.id(), second.id()]),
+            reordered_at,
+        )
+        .unwrap();
+
+        assert_eq!(
+            reordered.iter().map(|task| task.id()).collect::<Vec<_>>(),
+            vec![third.id(), first.id(), second.id()]
+        );
+        assert_eq!(
+            reordered
+                .iter()
+                .map(|task| task.position())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert!(reordered
+            .iter()
+            .all(|task| task.updated_at() == reordered_at));
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .tasks_in_category(CategoryId::INBOX)
+                .unwrap(),
+            reordered
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_tasks_is_idempotent_for_the_current_order() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T06:00:00.000000001Z");
+        let first = state
+            .lock()
+            .unwrap()
+            .create_task("First", CategoryId::INBOX, created_at)
+            .unwrap();
+        let second = state
+            .lock()
+            .unwrap()
+            .create_task("Second", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let unchanged = reorder_tasks_from_state(
+            &state,
+            reorder_request(CategoryId::INBOX, &[first.id(), second.id()]),
+            timestamp("2026-07-28T06:00:01.000000002Z"),
+        )
+        .unwrap();
+
+        assert_eq!(unchanged, vec![first, second]);
+        assert!(unchanged.iter().all(|task| task.updated_at() == created_at));
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_tasks_rejects_invalid_or_incomplete_orders_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T06:00:00.000000001Z");
+        let category = state.lock().unwrap().create_category("Work").unwrap();
+        let first = state
+            .lock()
+            .unwrap()
+            .create_task("First", CategoryId::INBOX, created_at)
+            .unwrap();
+        let second = state
+            .lock()
+            .unwrap()
+            .create_task("Second", CategoryId::INBOX, created_at)
+            .unwrap();
+        let foreign = state
+            .lock()
+            .unwrap()
+            .create_task("Foreign", category.id(), created_at)
+            .unwrap();
+        let original = vec![first.clone(), second.clone()];
+        let now = timestamp("2026-07-28T06:00:01.000000002Z");
+
+        let invalid_uuid = reorder_tasks_from_state(
+            &state,
+            ReorderTasksRequest {
+                category_id: CategoryId::INBOX.as_uuid().to_string(),
+                ordered_task_ids: vec!["not-a-uuid".to_owned()],
+            },
+            now,
+        )
+        .unwrap_err();
+        assert_eq!(invalid_uuid.code, CommandErrorCode::InvalidInput);
+
+        for ids in [
+            vec![first.id()],
+            vec![first.id(), first.id()],
+            vec![first.id(), foreign.id()],
+            vec![first.id(), second.id(), crate::domain::TaskId::new()],
+        ] {
+            let error =
+                reorder_tasks_from_state(&state, reorder_request(CategoryId::INBOX, &ids), now)
+                    .unwrap_err();
+            assert_eq!(error.code, CommandErrorCode::InvalidInput);
+        }
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .tasks_in_category(CategoryId::INBOX)
+                .unwrap(),
+            original
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_tasks_reports_a_missing_category_with_a_stable_code() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = reorder_tasks_from_state(
+            &state,
+            reorder_request(CategoryId::new(), &[]),
+            timestamp("2026-07-28T06:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::CategoryNotFound);
+        assert_eq!(
+            serde_json::to_value(error).unwrap()["code"],
+            "category_not_found"
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_tasks_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, status, due_date, category_id, position, created_at, updated_at
+                 ) VALUES (?1, 'Broken', 'open', NULL, ?2, 0, ?3, ?3)",
+                params![
+                    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    CategoryId::INBOX.as_uuid().to_string(),
+                    "2026-07-28T06:00:00.000000001Z"
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = reorder_tasks_from_state(
+            &state,
+            reorder_request(CategoryId::INBOX, &[]),
+            timestamp("2026-07-28T06:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn move_task_appends_to_target_and_compacts_source_positions() {
@@ -1105,6 +1347,19 @@ mod tests {
         MoveTaskRequest {
             task_id: task_id.as_uuid().to_string(),
             category_id: category_id.as_uuid().to_string(),
+        }
+    }
+
+    fn reorder_request(
+        category_id: CategoryId,
+        ordered_task_ids: &[crate::domain::TaskId],
+    ) -> ReorderTasksRequest {
+        ReorderTasksRequest {
+            category_id: category_id.as_uuid().to_string(),
+            ordered_task_ids: ordered_task_ids
+                .iter()
+                .map(|id| id.as_uuid().to_string())
+                .collect(),
         }
     }
 

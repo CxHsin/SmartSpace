@@ -25,6 +25,7 @@ pub fn run() {
             commands::tasks::list_tasks,
             commands::tasks::move_task,
             commands::tasks::rename_task,
+            commands::tasks::reorder_tasks,
             commands::tasks::set_task_due_date,
             commands::tasks::set_task_status
         ])

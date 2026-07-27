@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 14（任务跨分类移动 Tauri command）已提交并推送；模块 15 待登记。
+- 模块 15（分类内任务重排 Tauri command）已通过独立 review，待独立提交并推送。
 
 ## Current Goal
 
@@ -44,11 +44,17 @@
 
 ## In Progress
 
-- None.
+- **模块 15：分类内任务重排 Tauri command**（`Review Approved; Pending Delivery`）
+  - 范围：新增并注册 `reorder_tasks`，接收 `categoryId` 与完整的 `orderedTaskIds`；command 层在获取数据库锁前校验所有 UUID，由 Rust 生成 UTC 更新时间，并调用现有 `Database::reorder_tasks` 返回目标分类的新顺序。
+  - 验收：有效完整序列按请求持久化；发生位置变化的任务使用同一更新时间；重复提交相同顺序保持 `updatedAt`；重复、缺失、额外或属于其他分类的任务 ID 返回 `invalid_input` 且原子零写入；缺失分类返回 `category_not_found`；持久损坏保持 `data_corrupt`。
+  - 非范围：跨分类移动、分类重排、删除、React UI 与拖拽交互。
+  - 实现状态：command DTO、锁前全量 UUID 校验、UTC 时间生成、仓库调用、`InvalidTaskOrder` 用户错误分流、invoke handler 注册及 5 个聚焦测试已完成。
+  - 验证：5/5 聚焦测试与全量 90 个 Rust 测试通过；Rust fmt、全目标全特性 Clippy（`-D warnings`）及 check 通过；前端 Prettier、ESLint、TypeScript、1/1 Vitest、Vite production build 通过；`tauri build --no-bundle` 通过并生成 release executable。
+  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无阻塞或非阻塞 findings；reviewer 独立复跑 90 个 Rust 测试、fmt、严格 Clippy 与 diff check 均通过，未修改工作树。
 
 ## Next Up
 
-1. 模块 15：按最小可验收范围确定并登记。
+1. 完成模块 15 的实现、验证、独立 review、提交与推送。
 
 ## Open Questions
 
