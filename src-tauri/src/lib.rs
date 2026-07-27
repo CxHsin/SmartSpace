@@ -1,7 +1,7 @@
 mod commands;
 pub mod domain;
 mod embedding;
-mod storage;
+pub mod storage;
 mod windows;
 
 pub const APP_NAME: &str = "SmartSpace";

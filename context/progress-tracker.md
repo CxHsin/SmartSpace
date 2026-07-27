@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 实现中：模块 2（任务领域模型与分类不变量）已完成，准备进入模块 3（SQLite 持久化）。
+- 模块 3（SQLite schema bootstrap 与迁移）已通过验证和独立 review，正在完成提交与推送。
 
 ## Current Goal
 
@@ -29,6 +29,7 @@
 - 锁定 Token Monitor 为嵌入模块的验收对象；其嵌入不稳定或失败将阻塞该嵌入模块完成，不能降级为仅外部打开。
 - **模块 1：基础工程** 已完成：公开 Git/GitHub 基线、Tauri 2 + React 19 + TypeScript + Vite + Tailwind CSS 4 应用壳、架构目录、前后端测试和构建门禁均已建立；`gpt-5.6-sol medium` 首轮 review 的 TypeScript 假门禁、Rust lint 覆盖和 CSP 问题均已修复，复审结果为 `APPROVE`。前端、Rust、Tauri release 构建及双视口视觉验证全部通过。
 - **模块 2：任务领域模型与分类不变量** 已完成：新增强类型 UUID、任务标题/分类名校验、固定收件箱身份与删除保护、任务状态和日期/时间字段、纯状态变更以及守卫反序列化；14 个 Rust 测试、Rust format/test/clippy/check、前端回归和 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 未发现缺陷，结果为 `APPROVE`。
+- **模块 3：SQLite schema bootstrap 与迁移** 已完成：新增 bundled `rusqlite`、连接配置、单例 schema 版本表、顺序且原子的内嵌迁移执行器、未来版本拒绝、迁移目录一致性保护，以及带固定收件箱种子的 categories/tasks 初始结构、约束和索引。修复了并发首次打开重复迁移、拒绝未来版本前持久修改 journal mode、目录版本失配和正常重开无谓写锁问题；25 个 Rust 测试、20 轮并发压力复跑、Rust/前端门禁与 Tauri release 构建均通过。`gpt-5.6-sol medium` 第三轮复审结果为 `APPROVE`，无 findings。
 
 ## In Progress
 
@@ -36,7 +37,8 @@
 
 ## Next Up
 
-1. 模块 3：建立 SQLite 迁移与任务持久化仓库。
+1. 模块 4：建立分类持久化仓库。
+2. 模块 5：建立任务持久化仓库。
 
 ## Open Questions
 
@@ -63,5 +65,6 @@
 - 已确认的窗口嵌入行为：标签页切换只隐藏/显示窗口；关闭标签页默认关闭由 SmartSpace 启动的进程；嵌入失败时提供重试和外部打开。
 - Amicro 仓库检查结果：默认分支 `main`，当前包版本 `1.0.1`，许可证为 MIT；可通过 npm、CLI 或 shadcn registry 获取组件。
 - 模块 1 已以提交 `060479d` 推送到公开远程 `https://github.com/CxHsin/SmartSpace` 的 `main` 分支。
+- 模块 2 已以提交 `c9e698f` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
