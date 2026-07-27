@@ -18,6 +18,7 @@ import type { TaskWorkspaceData } from "./workspace-loader";
 
 const ALL_TASKS = "all";
 const COMPLETED_TASKS = "completed";
+const TODAY_TASKS = "today";
 
 function getLocalCalendarDate(date = new Date()) {
   const year = String(date.getFullYear()).padStart(4, "0");
@@ -46,18 +47,22 @@ function useLocalCalendarDate() {
   return today;
 }
 
-function countTasksByCategory(tasks: readonly TaskDto[]) {
+function countTasksByCategory(tasks: readonly TaskDto[], today: string) {
   const counts = new Map<string, number>();
   let completed = 0;
+  let dueToday = 0;
 
   for (const task of tasks) {
     counts.set(task.categoryId, (counts.get(task.categoryId) ?? 0) + 1);
+    if (task.dueDate === today) {
+      dueToday += 1;
+    }
     if (task.status === "completed") {
       completed += 1;
     }
   }
 
-  return { byCategory: counts, completed };
+  return { byCategory: counts, completed, dueToday };
 }
 
 function TaskStatusMark({ status }: Pick<TaskDto, "status">) {
@@ -196,20 +201,24 @@ const TaskRow = memo(function TaskRow({
 function EmptyTaskList({
   view,
 }: {
-  readonly view: "all" | "category" | "completed";
+  readonly view: "all" | "category" | "completed" | "today";
 }) {
   const title =
     view === "all"
       ? "No tasks yet"
-      : view === "completed"
-        ? "No completed tasks"
-        : "No tasks in this category";
+      : view === "today"
+        ? "No tasks due today"
+        : view === "completed"
+          ? "No completed tasks"
+          : "No tasks in this category";
   const description =
     view === "all"
       ? "Your list is clear."
-      : view === "completed"
-        ? "Completed tasks will appear here."
-        : "Choose another category to continue.";
+      : view === "today"
+        ? "Tasks due today will appear here."
+        : view === "completed"
+          ? "Completed tasks will appear here."
+          : "Choose another category to continue.";
 
   return (
     <div className="grid min-h-44 place-content-center px-6 text-center">
@@ -564,12 +573,13 @@ export function TaskWorkspace({
     [data.categories],
   );
   const taskCounts = useMemo(
-    () => countTasksByCategory(data.tasks),
-    [data.tasks],
+    () => countTasksByCategory(data.tasks, today),
+    [data.tasks, today],
   );
   const effectiveViewId =
     selectedViewId === ALL_TASKS ||
     selectedViewId === COMPLETED_TASKS ||
+    selectedViewId === TODAY_TASKS ||
     categoryById.has(selectedViewId)
       ? selectedViewId
       : ALL_TASKS;
@@ -582,10 +592,16 @@ export function TaskWorkspace({
       return data.tasks.filter((task) => task.status === "completed");
     }
 
+    if (effectiveViewId === TODAY_TASKS) {
+      return data.tasks.filter((task) => task.dueDate === today);
+    }
+
     return data.tasks.filter((task) => task.categoryId === effectiveViewId);
-  }, [data.tasks, effectiveViewId]);
+  }, [data.tasks, effectiveViewId, today]);
   const activeCategory =
-    effectiveViewId === ALL_TASKS || effectiveViewId === COMPLETED_TASKS
+    effectiveViewId === ALL_TASKS ||
+    effectiveViewId === COMPLETED_TASKS ||
+    effectiveViewId === TODAY_TASKS
       ? undefined
       : categoryById.get(effectiveViewId);
   const inboxCategory = data.categories.find(
@@ -593,15 +609,19 @@ export function TaskWorkspace({
   );
   const defaultCreateCategoryId = activeCategory?.id ?? inboxCategory?.id;
   const viewTitle =
-    effectiveViewId === COMPLETED_TASKS
-      ? "Completed"
-      : (activeCategory?.name ?? "All tasks");
+    effectiveViewId === TODAY_TASKS
+      ? "Today"
+      : effectiveViewId === COMPLETED_TASKS
+        ? "Completed"
+        : (activeCategory?.name ?? "All tasks");
   const emptyView =
     effectiveViewId === ALL_TASKS
       ? "all"
-      : effectiveViewId === COMPLETED_TASKS
-        ? "completed"
-        : "category";
+      : effectiveViewId === TODAY_TASKS
+        ? "today"
+        : effectiveViewId === COMPLETED_TASKS
+          ? "completed"
+          : "category";
 
   return (
     <section
@@ -615,6 +635,15 @@ export function TaskWorkspace({
         <p className="px-2 pb-2 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
           Tasks
         </p>
+        <button
+          aria-current={effectiveViewId === TODAY_TASKS ? "page" : undefined}
+          className="nav-item"
+          onClick={() => setSelectedViewId(TODAY_TASKS)}
+          type="button"
+        >
+          <span className="truncate">Today</span>
+          <span className="nav-count">{taskCounts.dueToday}</span>
+        </button>
         <button
           aria-current={effectiveViewId === ALL_TASKS ? "page" : undefined}
           className="nav-item"

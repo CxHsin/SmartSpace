@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 37（过期任务标识）已提交并推送；模块 38 待登记。
+- 模块 38（Today 智能视图）已完成实现、验证与独立审查，等待提交和推送。
 
 ## Current Goal
 
@@ -64,6 +64,7 @@
 - **模块 35：“已完成”智能视图** 已完成实现与审查：任务导航新增 Completed，计数与分类计数在同一次任务遍历中派生，列表直接从最新 DTO 过滤 `status === "completed"`；All、分类和 Completed 视图的标题、计数、筛选与专用空状态准确，恢复任务后会立即退出 Completed 并同步计数。新增 2 条交互测试；57 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的长标题、切换和恢复流程视觉验收无重叠、裁切或页面溢出。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `7b39a59` 已推送到 `origin/main`。
 - **模块 36：创建分类交互** 已完成实现与审查：分类导航新增紧凑内联创建入口，通过 `SmartSpaceClient.createCategory` 持久化并按返回位置同步更新导航与任务分类选择器；支持 Enter、Escape、Cancel、空白拒绝、同步重复提交锁、成功清空与焦点恢复、三类错误和草稿保留，并通过 keyed 会话隔离旧客户端请求。64 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁和 Tauri release 构建通过；1120×720、800×520、640×700 的长草稿、重复错误及长名称成功状态视觉验收无重叠或整体溢出。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `3b49fcd` 已推送到 `origin/main`。
 - **模块 37：过期任务标识** 已完成实现与审查：使用本地日历日期和可清理的本地午夜 timer 派生过期状态，仅对开放且截止日期早于今天的任务强调日期并显示文本 `Overdue`，不改变筛选、排序或 DTO。首轮 review 指出的午夜刷新与 timer 生命周期测试缺口（P2）已用 fake timers 覆盖并经复审关闭。66 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁与 Tauri release 构建通过；1120×720、800×520、640×700 视觉验收无重叠或整体溢出。`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings；模块提交 `e8d663c` 已推送到 `origin/main`。
+- **模块 38：Today 智能视图** 已完成实现与审查：任务导航新增 Today，计数在现有单次任务遍历中派生，筛选以当前本地日历日精确匹配 `dueDate`，包含开放与已完成任务并保持存储顺序；标题、计数、当前页、专用空状态和本地午夜刷新一致。67 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120×720、800×520、640×700 视觉验收无重叠或整体溢出。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
 
 ## In Progress
 
@@ -71,7 +72,7 @@
 
 ## Next Up
 
-1. 模块 38：按最小可验收范围确定并登记。
+1. 提交并推送模块 38，再记录实现提交哈希。
 
 ## Open Questions
 

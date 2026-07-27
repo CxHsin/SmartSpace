@@ -470,6 +470,81 @@ describe("App task workspace lifecycle", () => {
     expect(screen.getByText("Completed work task")).not.toBeNull();
   });
 
+  it("filters tasks due on the local calendar day in stable storage order", async () => {
+    const localToday = getLocalTodayForTest();
+    const openTodayTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000030",
+        "Open today task",
+        workId,
+      ),
+      dueDate: localToday,
+    };
+    const completedTodayTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000031",
+        "Completed today task",
+        personalId,
+      ),
+      dueDate: localToday,
+      status: "completed",
+    };
+    const overdueTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000032",
+        "Older due task",
+        inboxId,
+      ),
+      dueDate: "2000-01-01",
+    };
+    const futureTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000033",
+        "Later due task",
+        inboxId,
+        1,
+      ),
+      dueDate: "2999-12-31",
+    };
+    const noDateTask = createTask(
+      "10000000-0000-0000-0000-000000000034",
+      "Undated task",
+      inboxId,
+      2,
+    );
+
+    render(
+      createElement(App, {
+        client: createClient([
+          openTodayTask,
+          completedTodayTask,
+          overdueTask,
+          futureTask,
+          noDateTask,
+        ]),
+      }),
+    );
+
+    const todayButton = await screen.findByRole("button", { name: "Today 2" });
+    fireEvent.click(todayButton);
+
+    expect(
+      screen.getByRole("heading", { name: "Today", level: 2 }),
+    ).not.toBeNull();
+    expect(todayButton.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByText("Open today task")).not.toBeNull();
+    expect(screen.getByText("Completed today task")).not.toBeNull();
+    expect(screen.queryByText("Older due task")).toBeNull();
+    expect(screen.queryByText("Later due task")).toBeNull();
+    expect(screen.queryByText("Undated task")).toBeNull();
+    const taskListText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(taskListText?.indexOf("Open today task")).toBeLessThan(
+      taskListText?.indexOf("Completed today task") ?? -1,
+    );
+  });
+
   it("removes a reopened task from the completed view and updates its count", async () => {
     const completedTask: TaskDto = {
       ...createTask(
@@ -521,6 +596,11 @@ describe("App task workspace lifecycle", () => {
 
     expect(await screen.findByText("No tasks yet")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Inbox 0" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Today 0" }));
+    expect(await screen.findByText("No tasks due today")).not.toBeNull();
+    expect(
+      screen.getByText("Tasks due today will appear here."),
+    ).not.toBeNull();
   });
 
   it("marks only open tasks due before the local calendar day as overdue", async () => {
@@ -629,13 +709,19 @@ describe("App task workspace lifecycle", () => {
     try {
       expect(screen.queryByText("Overdue")).toBeNull();
       expect(vi.getTimerCount()).toBe(1);
+      const todayButton = screen.getByRole("button", { name: "Today 1" });
+      fireEvent.click(todayButton);
+      expect(screen.getByText("Becomes overdue at midnight")).not.toBeNull();
 
       act(() => {
         vi.advanceTimersByTime(200);
       });
 
-      expect(screen.getByText("Overdue")).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Today 0" })).not.toBeNull();
+      expect(screen.getByText("No tasks due today")).not.toBeNull();
       expect(vi.getTimerCount()).toBe(1);
+      fireEvent.click(screen.getByRole("button", { name: "All tasks 1" }));
+      expect(screen.getByText("Overdue")).not.toBeNull();
 
       rendered.unmount();
       expect(vi.getTimerCount()).toBe(0);
