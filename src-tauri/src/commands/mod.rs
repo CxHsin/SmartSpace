@@ -10,6 +10,7 @@ pub(crate) mod tasks;
 enum CommandErrorCode {
     InvalidInput,
     CategoryNotFound,
+    TaskNotFound,
     DuplicateCategoryName,
     DatabaseUnavailable,
     DataCorrupt,
@@ -40,6 +41,9 @@ impl From<DatabaseRuntimeError> for CommandError {
             ) => CommandErrorCode::DataCorrupt,
             DatabaseRuntimeError::Storage(StorageError::CategoryNotFound { .. }) => {
                 CommandErrorCode::CategoryNotFound
+            }
+            DatabaseRuntimeError::Storage(StorageError::TaskNotFound { .. }) => {
+                CommandErrorCode::TaskNotFound
             }
             DatabaseRuntimeError::Storage(StorageError::DuplicateCategoryName) => {
                 CommandErrorCode::DuplicateCategoryName

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::CommandError;
 use crate::{
-    domain::{CategoryId, Task, TaskTitle},
+    domain::{CategoryId, Task, TaskId, TaskStatus, TaskTitle},
     storage::{DatabaseRuntimeError, DatabaseState},
 };
 
@@ -16,12 +16,27 @@ pub(crate) struct CreateTaskRequest {
     category_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SetTaskStatusRequest {
+    task_id: String,
+    status: String,
+}
+
 #[tauri::command]
 pub(crate) fn create_task(
     database_state: State<'_, DatabaseState>,
     request: CreateTaskRequest,
 ) -> Result<Task, CommandError> {
     create_task_from_state(database_state.inner(), request, Utc::now())
+}
+
+#[tauri::command]
+pub(crate) fn set_task_status(
+    database_state: State<'_, DatabaseState>,
+    request: SetTaskStatusRequest,
+) -> Result<Task, CommandError> {
+    set_task_status_from_state(database_state.inner(), request, Utc::now())
 }
 
 #[tauri::command]
@@ -57,6 +72,31 @@ fn create_task_from_state(
         .map_err(CommandError::from)
 }
 
+fn set_task_status_from_state(
+    database_state: &DatabaseState,
+    request: SetTaskStatusRequest,
+    now: DateTime<Utc>,
+) -> Result<Task, CommandError> {
+    let task_id = Uuid::parse_str(&request.task_id)
+        .map(TaskId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("taskId must be a valid UUID"))?;
+    let status = match request.status.as_str() {
+        "open" => TaskStatus::Open,
+        "completed" => TaskStatus::Completed,
+        _ => {
+            return Err(CommandError::invalid_input(
+                "status must be either open or completed",
+            ));
+        }
+    };
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .set_task_status(task_id, status, now)
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -65,12 +105,158 @@ mod tests {
     use rusqlite::{params, Connection};
     use uuid::Uuid;
 
-    use super::{create_task_from_state, list_tasks_from_state, CreateTaskRequest};
+    use super::{
+        create_task_from_state, list_tasks_from_state, set_task_status_from_state,
+        CreateTaskRequest, SetTaskStatusRequest,
+    };
     use crate::{
         commands::CommandErrorCode,
         domain::CategoryId,
         storage::{DatabaseState, DATABASE_FILE_NAME},
     };
+
+    #[test]
+    fn set_task_status_completes_reopens_and_preserves_idempotent_time() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T02:00:00.000000001Z");
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task("Task", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let completed = set_task_status_from_state(
+            &state,
+            status_request(task.id(), "completed"),
+            timestamp("2026-07-28T02:00:01.000000002Z"),
+        )
+        .unwrap();
+        let idempotent = set_task_status_from_state(
+            &state,
+            status_request(task.id(), "completed"),
+            timestamp("2026-07-28T02:00:02.000000003Z"),
+        )
+        .unwrap();
+        let reopened = set_task_status_from_state(
+            &state,
+            status_request(task.id(), "open"),
+            timestamp("2026-07-28T02:00:03.000000004Z"),
+        )
+        .unwrap();
+
+        assert_eq!(completed.status(), crate::domain::TaskStatus::Completed);
+        assert_eq!(
+            completed.updated_at(),
+            timestamp("2026-07-28T02:00:01.000000002Z")
+        );
+        assert_eq!(idempotent.updated_at(), completed.updated_at());
+        assert_eq!(reopened.status(), crate::domain::TaskStatus::Open);
+        assert_eq!(
+            reopened.updated_at(),
+            timestamp("2026-07-28T02:00:03.000000004Z")
+        );
+        assert_eq!(
+            state.lock().unwrap().task(task.id()).unwrap(),
+            Some(reopened)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_task_status_rejects_invalid_input_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T02:00:00.000000001Z");
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task("Task", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let invalid_id = set_task_status_from_state(
+            &state,
+            SetTaskStatusRequest {
+                task_id: "not-a-uuid".to_owned(),
+                status: "completed".to_owned(),
+            },
+            timestamp("2026-07-28T02:00:01.000000002Z"),
+        )
+        .unwrap_err();
+        let invalid_status = set_task_status_from_state(
+            &state,
+            status_request(task.id(), "done"),
+            timestamp("2026-07-28T02:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(invalid_id.code, CommandErrorCode::InvalidInput);
+        assert_eq!(invalid_status.code, CommandErrorCode::InvalidInput);
+        assert_eq!(
+            state.lock().unwrap().task(task.id()).unwrap().unwrap(),
+            task
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_task_status_reports_a_missing_task_with_a_stable_code() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = set_task_status_from_state(
+            &state,
+            status_request(crate::domain::TaskId::new(), "completed"),
+            timestamp("2026-07-28T02:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::TaskNotFound);
+        assert_eq!(
+            serde_json::to_value(error).unwrap()["code"],
+            "task_not_found"
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_task_status_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, status, due_date, category_id, position, created_at, updated_at
+                 ) VALUES (?1, 'Broken', 'open', NULL, ?2, 0, ?3, ?3)",
+                params![
+                    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    CategoryId::INBOX.as_uuid().to_string(),
+                    "2026-07-28T02:00:00.000000001Z"
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = set_task_status_from_state(
+            &state,
+            status_request(crate::domain::TaskId::new(), "completed"),
+            timestamp("2026-07-28T02:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn create_task_validates_normalizes_and_persists_the_request() {
@@ -282,6 +468,13 @@ mod tests {
         DateTime::parse_from_rfc3339(value)
             .unwrap()
             .with_timezone(&Utc)
+    }
+
+    fn status_request(task_id: crate::domain::TaskId, status: &str) -> SetTaskStatusRequest {
+        SetTaskStatusRequest {
+            task_id: task_id.as_uuid().to_string(),
+            status: status.to_owned(),
+        }
     }
 
     fn temporary_root() -> std::path::PathBuf {

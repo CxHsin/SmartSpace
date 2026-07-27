@@ -22,7 +22,8 @@ pub fn run() {
             commands::categories::create_category,
             commands::categories::list_categories,
             commands::tasks::create_task,
-            commands::tasks::list_tasks
+            commands::tasks::list_tasks,
+            commands::tasks::set_task_status
         ])
         .run(tauri::generate_context!())
         .expect("failed to run SmartSpace");

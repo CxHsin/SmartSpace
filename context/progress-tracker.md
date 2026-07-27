@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 10（创建分类 Tauri command）已提交并推送；模块 11 待登记。
+- 模块 11（任务完成/恢复 Tauri command）已通过验证和独立 review，正在完成提交与推送。
 
 ## Current Goal
 
@@ -37,6 +37,7 @@
 - **模块 8：任务列表 Tauri command** 已完成实现与审查：注册只读 `list_tasks`，通过 managed `DatabaseState` 返回按分类及分类内位置稳定排序的任务领域 DTO，并复用类型化 command 错误契约。首轮 review 发现完整 DTO 测试覆盖不足，修复后使用带截止日期、完成状态和不同纳秒更新时间的任务逐字段断言 8 字段 JSON，并保留非法持久任务 UUID 的 `data_corrupt` 回归测试。2 个 command 测试与全量 59 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 复审结果为 `APPROVE`，无 findings。
 - **模块 9：创建任务 Tauri command** 已完成实现与审查：注册 `create_task`，由 Rust 生成 UTC 时间；command 层在获取数据库锁前校验并规范化标题与分类 UUID，再通过即时事务持久化任务。新增 `invalid_input` 与 `category_not_found` 稳定错误码，并保持持久损坏为 `data_corrupt`。4 个新增测试与全量 63 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
 - **模块 10：创建分类 Tauri command** 已完成实现与审查：注册 `create_category`，在获取数据库锁前校验并规范化名称，再通过即时事务持久化分类。新增 `duplicate_category_name` 稳定错误码，并保持持久损坏与用户输入错误分离；Unicode caseless 唯一性及并发继续由仓库事务保证。4 个新增测试与全量 67 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
+- **模块 11：任务完成/恢复 Tauri command** 已完成实现与审查：注册 `set_task_status`，在获取数据库锁前校验任务 UUID 与 `open`/`completed` 状态，由 Rust 生成 UTC 更新时间，再通过即时事务完成或恢复任务。新增 `task_not_found` 稳定错误码，并保证重复设置同一状态不改变 `updatedAt`。4 个新增测试与全量 71 个 Rust 测试、Rust/前端门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings。
 
 ## In Progress
 
@@ -44,7 +45,7 @@
 
 ## Next Up
 
-1. 模块 11：待模块 10 完成 review、提交并推送后，按最小可验收范围确定。
+1. 模块 12：待模块 11 完成 review、提交并推送后，按最小可验收范围确定。
 
 ## Open Questions
 
