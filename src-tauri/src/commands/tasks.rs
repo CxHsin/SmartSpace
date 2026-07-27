@@ -38,6 +38,13 @@ pub(crate) struct SetTaskDueDateRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MoveTaskRequest {
+    task_id: String,
+    category_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum RequiredOptionalDate {
     Date(String),
@@ -74,6 +81,14 @@ pub(crate) fn set_task_due_date(
     request: SetTaskDueDateRequest,
 ) -> Result<Task, CommandError> {
     set_task_due_date_from_state(database_state.inner(), request, Utc::now())
+}
+
+#[tauri::command]
+pub(crate) fn move_task(
+    database_state: State<'_, DatabaseState>,
+    request: MoveTaskRequest,
+) -> Result<Task, CommandError> {
+    move_task_from_state(database_state.inner(), request, Utc::now())
 }
 
 #[tauri::command]
@@ -187,6 +202,25 @@ fn set_task_due_date_from_state(
         .map_err(CommandError::from)
 }
 
+fn move_task_from_state(
+    database_state: &DatabaseState,
+    request: MoveTaskRequest,
+    now: DateTime<Utc>,
+) -> Result<Task, CommandError> {
+    let task_id = Uuid::parse_str(&request.task_id)
+        .map(TaskId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("taskId must be a valid UUID"))?;
+    let category_id = Uuid::parse_str(&request.category_id)
+        .map(CategoryId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("categoryId must be a valid UUID"))?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .move_task(task_id, category_id, now)
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -196,10 +230,198 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        create_task_from_state, list_tasks_from_state, rename_task_from_state,
-        set_task_due_date_from_state, set_task_status_from_state, CreateTaskRequest,
-        RenameTaskRequest, RequiredOptionalDate, SetTaskDueDateRequest, SetTaskStatusRequest,
+        create_task_from_state, list_tasks_from_state, move_task_from_state,
+        rename_task_from_state, set_task_due_date_from_state, set_task_status_from_state,
+        CreateTaskRequest, MoveTaskRequest, RenameTaskRequest, RequiredOptionalDate,
+        SetTaskDueDateRequest, SetTaskStatusRequest,
     };
+
+    #[test]
+    fn move_task_appends_to_target_and_compacts_source_positions() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T05:00:00.000000001Z");
+        let moved_at = timestamp("2026-07-28T05:00:01.000000002Z");
+        let category = state.lock().unwrap().create_category("Work").unwrap();
+        let first = state
+            .lock()
+            .unwrap()
+            .create_task("First", CategoryId::INBOX, created_at)
+            .unwrap();
+        let second = state
+            .lock()
+            .unwrap()
+            .create_task("Second", CategoryId::INBOX, created_at)
+            .unwrap();
+        let target = state
+            .lock()
+            .unwrap()
+            .create_task("Target", category.id(), created_at)
+            .unwrap();
+
+        let moved = move_task_from_state(&state, move_request(first.id(), category.id()), moved_at)
+            .unwrap();
+
+        assert_eq!(moved.category_id(), category.id());
+        assert_eq!(moved.position(), 1);
+        assert_eq!(moved.updated_at(), moved_at);
+        let source_tasks = state
+            .lock()
+            .unwrap()
+            .tasks_in_category(CategoryId::INBOX)
+            .unwrap();
+        assert_eq!(source_tasks.len(), 1);
+        assert_eq!(source_tasks[0].id(), second.id());
+        assert_eq!(source_tasks[0].position(), 0);
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .tasks_in_category(category.id())
+                .unwrap(),
+            vec![target, moved]
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_task_to_the_same_category_is_idempotent() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T05:00:00.000000001Z");
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task("Task", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let unchanged = move_task_from_state(
+            &state,
+            move_request(task.id(), CategoryId::INBOX),
+            timestamp("2026-07-28T05:00:01.000000002Z"),
+        )
+        .unwrap();
+
+        assert_eq!(unchanged, task);
+        assert_eq!(unchanged.updated_at(), created_at);
+        assert_eq!(state.lock().unwrap().task(task.id()).unwrap(), Some(task));
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_task_rejects_invalid_ids_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T05:00:00.000000001Z");
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task("Task", CategoryId::INBOX, created_at)
+            .unwrap();
+
+        let invalid_task = move_task_from_state(
+            &state,
+            MoveTaskRequest {
+                task_id: "not-a-uuid".to_owned(),
+                category_id: CategoryId::INBOX.as_uuid().to_string(),
+            },
+            timestamp("2026-07-28T05:00:01.000000002Z"),
+        )
+        .unwrap_err();
+        let invalid_category = move_task_from_state(
+            &state,
+            MoveTaskRequest {
+                task_id: task.id().as_uuid().to_string(),
+                category_id: "not-a-uuid".to_owned(),
+            },
+            timestamp("2026-07-28T05:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(invalid_task.code, CommandErrorCode::InvalidInput);
+        assert_eq!(invalid_category.code, CommandErrorCode::InvalidInput);
+        assert_eq!(state.lock().unwrap().task(task.id()).unwrap(), Some(task));
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_task_reports_missing_entities_with_stable_codes() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task(
+                "Task",
+                CategoryId::INBOX,
+                timestamp("2026-07-28T05:00:00.000000001Z"),
+            )
+            .unwrap();
+        let now = timestamp("2026-07-28T05:00:01.000000002Z");
+
+        let missing_task = move_task_from_state(
+            &state,
+            move_request(crate::domain::TaskId::new(), CategoryId::INBOX),
+            now,
+        )
+        .unwrap_err();
+        let missing_category =
+            move_task_from_state(&state, move_request(task.id(), CategoryId::new()), now)
+                .unwrap_err();
+
+        assert_eq!(missing_task.code, CommandErrorCode::TaskNotFound);
+        assert_eq!(missing_category.code, CommandErrorCode::CategoryNotFound);
+        assert_eq!(
+            serde_json::to_value(missing_task).unwrap()["code"],
+            "task_not_found"
+        );
+        assert_eq!(
+            serde_json::to_value(missing_category).unwrap()["code"],
+            "category_not_found"
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_task_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, status, due_date, category_id, position, created_at, updated_at
+                 ) VALUES (?1, 'Broken', 'open', NULL, ?2, 0, ?3, ?3)",
+                params![
+                    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    CategoryId::INBOX.as_uuid().to_string(),
+                    "2026-07-28T05:00:00.000000001Z"
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = move_task_from_state(
+            &state,
+            move_request(crate::domain::TaskId::new(), CategoryId::INBOX),
+            timestamp("2026-07-28T05:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn set_task_due_date_sets_clears_and_preserves_idempotent_time() {
@@ -876,6 +1098,13 @@ mod tests {
                 Some(value) => RequiredOptionalDate::Date(value.to_owned()),
                 None => RequiredOptionalDate::Null(()),
             },
+        }
+    }
+
+    fn move_request(task_id: crate::domain::TaskId, category_id: CategoryId) -> MoveTaskRequest {
+        MoveTaskRequest {
+            task_id: task_id.as_uuid().to_string(),
+            category_id: category_id.as_uuid().to_string(),
         }
     }
 

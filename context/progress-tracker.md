@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 13（任务截止日期 Tauri command）已提交并推送；模块 14 待登记。
+- 模块 14（任务跨分类移动 Tauri command）已通过独立 review，待独立提交并推送。
 
 ## Current Goal
 
@@ -43,11 +43,17 @@
 
 ## In Progress
 
-- None.
+- **模块 14：任务跨分类移动 Tauri command**（`Review Approved; Pending Delivery`）
+  - 范围：新增并注册 `move_task`，接收 `taskId` 与 `categoryId`；command 层在获取数据库锁前校验两个 UUID，由 Rust 生成 UTC 更新时间，并调用现有 `Database::move_task` 返回移动后的完整 `Task`。
+  - 验收：跨分类移动后任务追加到目标分类末尾且源分类位置连续；移动到同一分类幂等并保持 `updatedAt`；非法 UUID 不产生写入；缺失任务、缺失分类分别返回稳定的 `task_not_found`、`category_not_found`；持久数据损坏保持 `data_corrupt`。
+  - 非范围：任务重排、分类重排、删除、React UI 与其他 command。
+  - 实现状态：command DTO、锁前 UUID 校验、UTC 时间生成、仓库调用、invoke handler 注册及 5 个聚焦测试已完成。
+  - 验证：5/5 聚焦测试与全量 85 个 Rust 测试通过；Rust fmt、全目标全特性 Clippy（`-D warnings`）及 check 通过；前端 Prettier、ESLint、TypeScript、1/1 Vitest、Vite production build 通过；`tauri build --no-bundle` 通过并生成 release executable。
+  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无阻塞或非阻塞 findings；reviewer 独立复跑 85 个 Rust 测试、fmt、严格 Clippy 与 diff check 均通过，未修改工作树。
 
 ## Next Up
 
-1. 模块 14：待模块 13 完成 review、提交并推送后，按最小可验收范围确定。
+1. 完成模块 14 的实现、验证、独立 review、提交与推送。
 
 ## Open Questions
 
