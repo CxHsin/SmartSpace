@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 34（前端分类删除 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
+- 模块 34（前端分类删除 IPC 客户端）已提交并推送；模块 35 待登记。
 
 ## Current Goal
 
@@ -60,19 +60,15 @@
 - **模块 31：前端创建分类 IPC 客户端** 已完成实现与审查：新增只读 `CreateCategoryInput` 与 `SmartSpaceClient.createCategory`，精确调用 `create_category` 并传递 `{ request: { name } }`；分类名称原样交由 Rust 领域层规范化，冻结输入保持不变并返回完整四字段 `CategoryDto`。45 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `57a20f6` 已推送到 `origin/main`。
 - **模块 32：前端分类重命名 IPC 客户端** 已完成实现与审查：新增只读 `RenameCategoryInput` 与 `SmartSpaceClient.renameCategory`，精确调用 `rename_category` 并传递 `{ request: { categoryId, name } }`；分类名称原样交由 Rust 领域层规范化，冻结输入保持不变并返回完整四字段 `CategoryDto`。49 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `a640370` 已推送到 `origin/main`。
 - **模块 33：前端分类重排 IPC 客户端** 已完成实现与审查：新增只读 `ReorderCategoriesInput` 与 `SmartSpaceClient.reorderCategories`，精确调用 `reorder_categories` 并传递完整 `{ request: { orderedCategoryIds } }`；冻结输入和只读 ID 序列保持不变，收件箱 ID 原样参与排序，返回完整只读 `CategoryDto` 数组。51 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `e932974` 已推送到 `origin/main`。
+- **模块 34：前端分类删除 IPC 客户端** 已完成实现与审查：新增只读 `DeleteCategoryInput`、`DeleteCategoryResultDto` 与 `SmartSpaceClient.deleteCategory`，精确调用 `delete_category` 并传递 `{ request: { categoryId } }`；冻结输入保持不变，返回删除分类 ID 与迁移任务数，收件箱保护错误保持结构化。55 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `8c3b508` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 34：前端分类删除 IPC 客户端**（Ready for delivery）
-  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `DeleteCategoryInput`、`DeleteCategoryResultDto` 与 `deleteCategory`，只接通已有 Rust `delete_category` command；不加入删除按钮、确认交互、导航/任务迁移 UI 或其他分类写操作。
-  - 验收条件：输入类型与结果 DTO 只读；客户端精确调用 `delete_category` 并传递 `{ request: { categoryId } }`，调用不改写冻结输入并返回删除分类 ID 与迁移任务数；`invalid_input`、`category_not_found`、`cannot_delete_inbox` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
-  - 实现进度：已新增只读 `DeleteCategoryInput`、`DeleteCategoryResultDto`、`SmartSpaceClient.deleteCategory` 与 `delete_category` 精确 IPC 调用；测试覆盖冻结输入、删除分类 ID、迁移任务数、精确请求及 `invalid_input`/`category_not_found`/`cannot_delete_inbox` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外分类删除调用；聚焦客户端测试 39/39、全量前端测试 55/55 和 typecheck 已通过。
-  - 验证进度：55 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
-  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；只读输入与结果 DTO、Tauri/Rust serde、删除分类 ID、迁移任务数、三类领域错误和所有测试替身均核对通过，聚焦 3 个测试文件 54/54。
+- None.
 
 ## Next Up
 
-1. 提交并推送模块 34，然后记录交付提交哈希。
+1. 模块 35：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -132,5 +128,6 @@
 - 模块 31 已以提交 `57a20f6` 推送到 `origin/main`。
 - 模块 32 已以提交 `a640370` 推送到 `origin/main`。
 - 模块 33 已以提交 `e932974` 推送到 `origin/main`。
+- 模块 34 已以提交 `8c3b508` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
