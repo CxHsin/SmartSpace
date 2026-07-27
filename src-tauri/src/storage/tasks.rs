@@ -236,7 +236,7 @@ fn list_tasks(connection: &Connection) -> Result<Vec<Task>, StorageError> {
     list_tasks_with_categories(connection, &categories)
 }
 
-fn list_tasks_with_categories(
+pub(super) fn list_tasks_with_categories(
     connection: &Connection,
     categories: &[crate::domain::Category],
 ) -> Result<Vec<Task>, StorageError> {

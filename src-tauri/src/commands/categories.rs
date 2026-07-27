@@ -1,4 +1,5 @@
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 
@@ -26,6 +27,19 @@ pub(crate) struct ReorderCategoriesRequest {
     ordered_category_ids: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeleteCategoryRequest {
+    category_id: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeleteCategoryResult {
+    category_id: CategoryId,
+    migrated_task_count: usize,
+}
+
 #[tauri::command]
 pub(crate) fn create_category(
     database_state: State<'_, DatabaseState>,
@@ -48,6 +62,14 @@ pub(crate) fn reorder_categories(
     request: ReorderCategoriesRequest,
 ) -> Result<Vec<Category>, CommandError> {
     reorder_categories_from_state(database_state.inner(), request)
+}
+
+#[tauri::command]
+pub(crate) fn delete_category(
+    database_state: State<'_, DatabaseState>,
+    request: DeleteCategoryRequest,
+) -> Result<DeleteCategoryResult, CommandError> {
+    delete_category_from_state(database_state.inner(), request, Utc::now())
 }
 
 #[tauri::command]
@@ -122,18 +144,241 @@ fn reorder_categories_from_state(
         })
 }
 
+fn delete_category_from_state(
+    database_state: &DatabaseState,
+    request: DeleteCategoryRequest,
+    now: DateTime<Utc>,
+) -> Result<DeleteCategoryResult, CommandError> {
+    let category_id = Uuid::parse_str(&request.category_id)
+        .map(CategoryId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("categoryId must be a valid UUID"))?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    let migrated_task_count = database
+        .delete_category(category_id, now)
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)?;
+    Ok(DeleteCategoryResult {
+        category_id,
+        migrated_task_count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, sync::Arc, thread};
 
+    use chrono::{DateTime, Utc};
     use rusqlite::Connection;
     use uuid::Uuid;
 
     use super::{
-        create_category_from_state, list_categories_from_state, rename_category_from_state,
-        reorder_categories_from_state, CreateCategoryRequest, RenameCategoryRequest,
+        create_category_from_state, delete_category_from_state, list_categories_from_state,
+        rename_category_from_state, reorder_categories_from_state, CreateCategoryRequest,
+        DeleteCategoryRequest, DeleteCategoryResult, RenameCategoryRequest,
         ReorderCategoriesRequest,
     };
+
+    #[test]
+    fn delete_category_migrates_tasks_and_compacts_category_positions() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let created_at = timestamp("2026-07-28T07:00:00.000000001Z");
+        let deleted_at = timestamp("2026-07-28T07:00:01.000000002Z");
+        let work = state.lock().unwrap().create_category("Work").unwrap();
+        let later = state.lock().unwrap().create_category("Later").unwrap();
+        let inbox_task = state
+            .lock()
+            .unwrap()
+            .create_task("Inbox", CategoryId::INBOX, created_at)
+            .unwrap();
+        let first = state
+            .lock()
+            .unwrap()
+            .create_task("First", work.id(), created_at)
+            .unwrap();
+        let second = state
+            .lock()
+            .unwrap()
+            .create_task("Second", work.id(), created_at)
+            .unwrap();
+
+        let result =
+            delete_category_from_state(&state, delete_request(work.id()), deleted_at).unwrap();
+
+        assert_eq!(
+            result,
+            DeleteCategoryResult {
+                category_id: work.id(),
+                migrated_task_count: 2,
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::json!({
+                "categoryId": work.id().as_uuid().to_string(),
+                "migratedTaskCount": 2
+            })
+        );
+        let inbox_tasks = state
+            .lock()
+            .unwrap()
+            .tasks_in_category(CategoryId::INBOX)
+            .unwrap();
+        assert_eq!(
+            inbox_tasks.iter().map(|task| task.id()).collect::<Vec<_>>(),
+            vec![inbox_task.id(), first.id(), second.id()]
+        );
+        assert_eq!(inbox_tasks[1].updated_at(), deleted_at);
+        assert_eq!(inbox_tasks[2].updated_at(), deleted_at);
+        assert_eq!(state.lock().unwrap().category(work.id()).unwrap(), None);
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .category(later.id())
+                .unwrap()
+                .unwrap()
+                .position(),
+            1
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_category_reports_zero_migrations_for_an_empty_category() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let category = state.lock().unwrap().create_category("Empty").unwrap();
+
+        let result = delete_category_from_state(
+            &state,
+            delete_request(category.id()),
+            timestamp("2026-07-28T07:00:01.000000002Z"),
+        )
+        .unwrap();
+
+        assert_eq!(result.migrated_task_count, 0);
+        assert_eq!(state.lock().unwrap().category(category.id()).unwrap(), None);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_category_rejects_invalid_ids_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let category = state.lock().unwrap().create_category("Work").unwrap();
+        let original = state.lock().unwrap().list_categories().unwrap();
+
+        let error = delete_category_from_state(
+            &state,
+            DeleteCategoryRequest {
+                category_id: "not-a-uuid".to_owned(),
+            },
+            timestamp("2026-07-28T07:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::InvalidInput);
+        assert_eq!(
+            state.lock().unwrap().category(category.id()).unwrap(),
+            Some(category)
+        );
+        assert_eq!(state.lock().unwrap().list_categories().unwrap(), original);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_category_reports_protected_and_missing_categories_with_stable_codes() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let original = state.lock().unwrap().list_categories().unwrap();
+        let now = timestamp("2026-07-28T07:00:01.000000002Z");
+
+        let protected =
+            delete_category_from_state(&state, delete_request(CategoryId::INBOX), now).unwrap_err();
+        let missing =
+            delete_category_from_state(&state, delete_request(CategoryId::new()), now).unwrap_err();
+
+        assert_eq!(protected.code, CommandErrorCode::CannotDeleteInbox);
+        assert_eq!(missing.code, CommandErrorCode::CategoryNotFound);
+        assert_eq!(
+            serde_json::to_value(protected).unwrap()["code"],
+            "cannot_delete_inbox"
+        );
+        assert_eq!(
+            serde_json::to_value(missing).unwrap()["code"],
+            "category_not_found"
+        );
+        assert_eq!(state.lock().unwrap().list_categories().unwrap(), original);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_category_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let category = state.lock().unwrap().create_category("Work").unwrap();
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task(
+                "Task",
+                category.id(),
+                timestamp("2026-07-28T07:00:00.000000001Z"),
+            )
+            .unwrap();
+        drop(state);
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "UPDATE tasks SET title = '  Broken  ' WHERE id = ?1",
+                [task.id().as_uuid().to_string()],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = delete_category_from_state(
+            &state,
+            delete_request(category.id()),
+            timestamp("2026-07-28T07:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        let category_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM categories WHERE id = ?1",
+                [category.id().as_uuid().to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let persisted_task: (String, String, i64) = connection
+            .query_row(
+                "SELECT title, category_id, position FROM tasks WHERE id = ?1",
+                [task.id().as_uuid().to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(category_count, 1);
+        assert_eq!(persisted_task.0, "  Broken  ");
+        assert_eq!(persisted_task.1, category.id().as_uuid().to_string());
+        assert_eq!(persisted_task.2, 0);
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn reorder_categories_persists_the_complete_requested_order() {
@@ -588,5 +833,17 @@ mod tests {
                 .map(|id| id.as_uuid().to_string())
                 .collect(),
         }
+    }
+
+    fn delete_request(category_id: CategoryId) -> DeleteCategoryRequest {
+        DeleteCategoryRequest {
+            category_id: category_id.as_uuid().to_string(),
+        }
+    }
+
+    fn timestamp(value: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(value)
+            .unwrap()
+            .with_timezone(&Utc)
     }
 }

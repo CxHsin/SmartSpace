@@ -20,6 +20,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::categories::create_category,
+            commands::categories::delete_category,
             commands::categories::list_categories,
             commands::categories::rename_category,
             commands::categories::reorder_categories,

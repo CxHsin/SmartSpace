@@ -115,33 +115,26 @@ impl Database {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let categories = list_categories(&transaction)?;
         let category = categories
-            .into_iter()
+            .iter()
             .find(|category| category.id() == id)
+            .cloned()
             .ok_or(StorageError::CategoryNotFound { id })?;
         category.ensure_deletable()?;
 
+        let all_tasks = super::tasks::list_tasks_with_categories(&transaction, &categories)?;
+        let tasks = all_tasks
+            .into_iter()
+            .filter(|task| task.category_id() == id)
+            .collect::<Vec<_>>();
         let next_inbox_position: i64 = transaction.query_row(
             "SELECT COALESCE(MAX(position), -1) + 1 FROM tasks WHERE category_id = ?1",
             [CategoryId::INBOX.as_uuid().to_string()],
             |row| row.get(0),
         )?;
-        let tasks = {
-            let mut statement = transaction.prepare(
-                "SELECT id, updated_at FROM tasks
-                 WHERE category_id = ?1 ORDER BY position ASC, id ASC",
-            )?;
-            let tasks = statement
-                .query_map([id.as_uuid().to_string()], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            tasks
-        };
 
-        for (offset, (task_id, stored_updated_at)) in tasks.iter().enumerate() {
-            let stored_updated_at =
-                DateTime::parse_from_rfc3339(stored_updated_at)?.with_timezone(&Utc);
-            let updated_at = stored_updated_at
+        for (offset, task) in tasks.iter().enumerate() {
+            let updated_at = task
+                .updated_at()
                 .max(now)
                 .to_rfc3339_opts(SecondsFormat::Nanos, true);
             transaction.execute(
@@ -154,7 +147,7 @@ impl Database {
                     CategoryId::INBOX.as_uuid().to_string(),
                     next_inbox_position + offset as i64,
                     updated_at,
-                    task_id
+                    task.id().as_uuid().to_string()
                 ],
             )?;
         }
@@ -449,21 +442,21 @@ mod tests {
             &database.connection,
             "10000000-0000-0000-0000-000000000001",
             &inbox_id,
-            2,
+            0,
             "2026-07-27T10:00:00.000000Z",
         );
         insert_task(
             &database.connection,
             "10000000-0000-0000-0000-000000000002",
             &work_id,
-            5,
+            1,
             "2026-07-27T12:00:00Z",
         );
         insert_task(
             &database.connection,
             "10000000-0000-0000-0000-000000000003",
             &work_id,
-            1,
+            0,
             "2026-07-27T13:00:00.000000Z",
         );
 
@@ -511,13 +504,13 @@ mod tests {
                 (
                     "10000000-0000-0000-0000-000000000003".to_owned(),
                     inbox_id.clone(),
-                    3,
+                    1,
                     "2026-07-27T13:00:00.000000000Z".to_owned(),
                 ),
                 (
                     "10000000-0000-0000-0000-000000000002".to_owned(),
                     inbox_id,
-                    4,
+                    2,
                     "2026-07-27T12:00:00.500000000Z".to_owned(),
                 ),
             ]

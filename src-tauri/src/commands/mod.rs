@@ -1,6 +1,9 @@
 use serde::Serialize;
 
-use crate::storage::{DatabaseRuntimeError, StorageError};
+use crate::{
+    domain::DomainError,
+    storage::{DatabaseRuntimeError, StorageError},
+};
 
 pub(crate) mod categories;
 pub(crate) mod tasks;
@@ -12,6 +15,7 @@ enum CommandErrorCode {
     CategoryNotFound,
     TaskNotFound,
     DuplicateCategoryName,
+    CannotDeleteInbox,
     DatabaseUnavailable,
     DataCorrupt,
     DatabaseOperationFailed,
@@ -29,6 +33,9 @@ impl From<DatabaseRuntimeError> for CommandError {
         let code = match &error {
             DatabaseRuntimeError::CreateDataDirectory { .. }
             | DatabaseRuntimeError::LockPoisoned => CommandErrorCode::DatabaseUnavailable,
+            DatabaseRuntimeError::Storage(StorageError::Domain(DomainError::CannotDeleteInbox)) => {
+                CommandErrorCode::CannotDeleteInbox
+            }
             DatabaseRuntimeError::Storage(
                 StorageError::Domain(_)
                 | StorageError::InvalidUuid(_)
