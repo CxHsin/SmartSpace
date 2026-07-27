@@ -5,7 +5,7 @@ use uuid::Uuid;
 use super::CommandError;
 use crate::{
     domain::{Category, CategoryId, CategoryName},
-    storage::{DatabaseRuntimeError, DatabaseState},
+    storage::{DatabaseRuntimeError, DatabaseState, StorageError},
 };
 
 #[derive(Debug, Deserialize)]
@@ -18,6 +18,12 @@ pub(crate) struct CreateCategoryRequest {
 pub(crate) struct RenameCategoryRequest {
     category_id: String,
     name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReorderCategoriesRequest {
+    ordered_category_ids: Vec<String>,
 }
 
 #[tauri::command]
@@ -34,6 +40,14 @@ pub(crate) fn rename_category(
     request: RenameCategoryRequest,
 ) -> Result<Category, CommandError> {
     rename_category_from_state(database_state.inner(), request)
+}
+
+#[tauri::command]
+pub(crate) fn reorder_categories(
+    database_state: State<'_, DatabaseState>,
+    request: ReorderCategoriesRequest,
+) -> Result<Vec<Category>, CommandError> {
+    reorder_categories_from_state(database_state.inner(), request)
 }
 
 #[tauri::command]
@@ -83,6 +97,31 @@ fn rename_category_from_state(
         .map_err(CommandError::from)
 }
 
+fn reorder_categories_from_state(
+    database_state: &DatabaseState,
+    request: ReorderCategoriesRequest,
+) -> Result<Vec<Category>, CommandError> {
+    let ordered_category_ids = request
+        .ordered_category_ids
+        .iter()
+        .map(|value| {
+            Uuid::parse_str(value)
+                .map(CategoryId::from_uuid)
+                .map_err(|_| {
+                    CommandError::invalid_input("orderedCategoryIds must contain valid UUIDs")
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .reorder_categories(&ordered_category_ids)
+        .map_err(|error| match error {
+            StorageError::InvalidCategoryOrder => CommandError::invalid_input(error.to_string()),
+            error => CommandError::from(DatabaseRuntimeError::from(error)),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, sync::Arc, thread};
@@ -92,8 +131,119 @@ mod tests {
 
     use super::{
         create_category_from_state, list_categories_from_state, rename_category_from_state,
-        CreateCategoryRequest, RenameCategoryRequest,
+        reorder_categories_from_state, CreateCategoryRequest, RenameCategoryRequest,
+        ReorderCategoriesRequest,
     };
+
+    #[test]
+    fn reorder_categories_persists_the_complete_requested_order() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let work = state.lock().unwrap().create_category("Work").unwrap();
+        let personal = state.lock().unwrap().create_category("Personal").unwrap();
+
+        let reordered = reorder_categories_from_state(
+            &state,
+            reorder_request(&[personal.id(), CategoryId::INBOX, work.id()]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            reordered
+                .iter()
+                .map(|category| category.id())
+                .collect::<Vec<_>>(),
+            vec![personal.id(), CategoryId::INBOX, work.id()]
+        );
+        assert_eq!(
+            reordered
+                .iter()
+                .map(|category| category.position())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(reordered[1].kind(), CategoryKind::Inbox);
+        assert_eq!(state.lock().unwrap().list_categories().unwrap(), reordered);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_categories_is_idempotent_for_the_current_order() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let work = state.lock().unwrap().create_category("Work").unwrap();
+        let expected = state.lock().unwrap().list_categories().unwrap();
+
+        let unchanged =
+            reorder_categories_from_state(&state, reorder_request(&[CategoryId::INBOX, work.id()]))
+                .unwrap();
+
+        assert_eq!(unchanged, expected);
+        assert_eq!(state.lock().unwrap().list_categories().unwrap(), expected);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_categories_rejects_invalid_or_incomplete_orders_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let work = state.lock().unwrap().create_category("Work").unwrap();
+        let original = state.lock().unwrap().list_categories().unwrap();
+
+        let invalid_uuid = reorder_categories_from_state(
+            &state,
+            ReorderCategoriesRequest {
+                ordered_category_ids: vec!["not-a-uuid".to_owned()],
+            },
+        )
+        .unwrap_err();
+        assert_eq!(invalid_uuid.code, CommandErrorCode::InvalidInput);
+
+        for ids in [
+            vec![CategoryId::INBOX],
+            vec![CategoryId::INBOX, CategoryId::INBOX],
+            vec![CategoryId::INBOX, work.id(), CategoryId::new()],
+        ] {
+            let error = reorder_categories_from_state(&state, reorder_request(&ids)).unwrap_err();
+            assert_eq!(error.code, CommandErrorCode::InvalidInput);
+            assert_eq!(
+                serde_json::to_value(error).unwrap()["code"],
+                "invalid_input"
+            );
+        }
+        assert_eq!(state.lock().unwrap().list_categories().unwrap(), original);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reorder_categories_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO categories (id, name, position, kind)
+                 VALUES ('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Broken', 1, 'user')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = reorder_categories_from_state(&state, reorder_request(&[CategoryId::INBOX]))
+            .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
     use crate::{
         commands::CommandErrorCode,
         domain::{CategoryId, CategoryKind},
@@ -428,6 +578,15 @@ mod tests {
         RenameCategoryRequest {
             category_id: category_id.as_uuid().to_string(),
             name: name.to_owned(),
+        }
+    }
+
+    fn reorder_request(category_ids: &[CategoryId]) -> ReorderCategoriesRequest {
+        ReorderCategoriesRequest {
+            ordered_category_ids: category_ids
+                .iter()
+                .map(|id| id.as_uuid().to_string())
+                .collect(),
         }
     }
 }

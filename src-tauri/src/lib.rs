@@ -22,6 +22,7 @@ pub fn run() {
             commands::categories::create_category,
             commands::categories::list_categories,
             commands::categories::rename_category,
+            commands::categories::reorder_categories,
             commands::tasks::create_task,
             commands::tasks::list_tasks,
             commands::tasks::move_task,

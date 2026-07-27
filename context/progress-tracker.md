@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 16（分类重命名 Tauri command）已提交并推送；模块 17 待登记。
+- 模块 17（分类重排 Tauri command）已通过独立 review，待独立提交并推送。
 
 ## Current Goal
 
@@ -46,11 +46,17 @@
 
 ## In Progress
 
-- None.
+- **模块 17：分类重排 Tauri command**（`Review Approved; Pending Delivery`）
+  - 范围：新增并注册 `reorder_categories`，接收完整的 `orderedCategoryIds`；command 层在获取数据库锁前校验所有 UUID，并调用现有 `Database::reorder_categories` 返回新顺序。
+  - 验收：有效完整序列按请求持久化；重复提交相同顺序幂等；收件箱可参与任意位置但固定 ID 与系统类型不变；重复、缺失或额外分类 ID 返回 `invalid_input` 且原子零写入；持久损坏保持 `data_corrupt`。
+  - 非范围：分类重命名、分类删除、任务重排与 React UI。
+  - 实现状态：command DTO、锁前全量 UUID 校验、仓库调用、`InvalidCategoryOrder` 用户错误分流、invoke handler 注册及 4 个聚焦测试已完成。
+  - 验证：4/4 聚焦测试与全量 99 个 Rust 测试通过；Rust fmt、全目标全特性 Clippy（`-D warnings`）及 check 通过；前端 Prettier、ESLint、TypeScript、1/1 Vitest、Vite production build 通过；`tauri build --no-bundle` 通过并生成 release executable。
+  - Review：`gpt-5.6-sol medium` 独立只读 review 结果为 `APPROVE`，无 findings；reviewer 独立复跑 99 个 Rust 测试、fmt、全目标全特性严格 Clippy 与 diff check 均通过，未修改工作树。
 
 ## Next Up
 
-1. 模块 17：按最小可验收范围确定并登记。
+1. 完成模块 17 的实现、验证、独立 review、提交与推送。
 
 ## Open Questions
 
