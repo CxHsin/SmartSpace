@@ -80,6 +80,9 @@ describe("loadTaskWorkspace", () => {
           "Workspace loader called reorderCategories unexpectedly.",
         );
       }),
+      deleteCategory: vi.fn(async () => {
+        throw new Error("Workspace loader called deleteCategory unexpectedly.");
+      }),
     };
 
     const loading = loadTaskWorkspace(client);

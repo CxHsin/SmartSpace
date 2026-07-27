@@ -86,6 +86,11 @@ const unexpectedReorderCategories: SmartSpaceClient["reorderCategories"] =
     throw new Error("Workspace test called reorderCategories unexpectedly.");
   };
 
+const unexpectedDeleteCategory: SmartSpaceClient["deleteCategory"] =
+  async () => {
+    throw new Error("Workspace test called deleteCategory unexpectedly.");
+  };
+
 function createClient(
   taskResult: readonly TaskDto[] = [],
   createTask: SmartSpaceClient["createTask"] = async () => {
@@ -106,6 +111,7 @@ function createClient(
     createCategory: unexpectedCreateCategory,
     renameCategory: unexpectedRenameCategory,
     reorderCategories: unexpectedReorderCategories,
+    deleteCategory: unexpectedDeleteCategory,
   };
 }
 
@@ -161,6 +167,7 @@ describe("App task workspace lifecycle", () => {
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
       reorderCategories: unexpectedReorderCategories,
+      deleteCategory: unexpectedDeleteCategory,
     };
     const currentClient = createClient([
       createTask(
@@ -256,6 +263,7 @@ describe("App task workspace lifecycle", () => {
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
       reorderCategories: unexpectedReorderCategories,
+      deleteCategory: unexpectedDeleteCategory,
     };
     const pendingBCategories = createDeferred<readonly CategoryDto[]>();
     const pendingBTasks = createDeferred<readonly TaskDto[]>();
@@ -274,6 +282,7 @@ describe("App task workspace lifecycle", () => {
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
       reorderCategories: unexpectedReorderCategories,
+      deleteCategory: unexpectedDeleteCategory,
     };
     const rendered = render(createElement(App, { client: clientA }));
 
@@ -336,6 +345,7 @@ describe("App task workspace lifecycle", () => {
       createCategory: unexpectedCreateCategory,
       renameCategory: unexpectedRenameCategory,
       reorderCategories: unexpectedReorderCategories,
+      deleteCategory: unexpectedDeleteCategory,
     };
 
     render(createElement(App, { client }));

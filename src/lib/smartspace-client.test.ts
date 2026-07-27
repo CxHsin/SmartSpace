@@ -3,6 +3,7 @@ import {
   createSmartSpaceClient,
   SmartSpaceCommandError,
   type CategoryDto,
+  type DeleteCategoryResultDto,
   type InvokeCommand,
   type TaskDto,
 } from "./smartspace-client";
@@ -716,4 +717,55 @@ describe("SmartSpaceClient reorder categories command", () => {
       message: "category order is incomplete",
     });
   });
+});
+
+describe("SmartSpaceClient delete category command", () => {
+  it("sends the exact readonly request and returns the deletion result", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const result: DeleteCategoryResultDto = {
+      categoryId: "00000000-0000-0000-0000-000000000002",
+      migratedTaskCount: 3,
+    };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return result as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({ categoryId: result.categoryId });
+
+    await expect(client.deleteCategory(input)).resolves.toEqual(result);
+    expect(input).toEqual({ categoryId: result.categoryId });
+    expect(calls).toEqual([
+      {
+        command: "delete_category",
+        args: { request: { categoryId: result.categoryId } },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "category id is invalid" },
+    { code: "category_not_found", message: "category does not exist" },
+    { code: "cannot_delete_inbox", message: "inbox cannot be deleted" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .deleteCategory({ categoryId: categories[0].id })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
 });
