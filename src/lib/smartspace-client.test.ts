@@ -255,3 +255,93 @@ describe("SmartSpaceClient rename task command", () => {
     },
   );
 });
+
+describe("SmartSpaceClient set task due date command", () => {
+  it("sends an exact readonly date request and returns the complete task DTO", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const datedTask: TaskDto = {
+      ...tasks[0],
+      dueDate: "2026-08-01",
+      updatedAt: "2026-07-28T09:06:00.000000004Z",
+    };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return datedTask as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+    const input = Object.freeze({
+      taskId: tasks[0].id,
+      dueDate: "2026-08-01",
+    });
+
+    await expect(client.setTaskDueDate(input)).resolves.toEqual(datedTask);
+    expect(input).toEqual({
+      taskId: tasks[0].id,
+      dueDate: "2026-08-01",
+    });
+    expect(calls).toEqual([
+      {
+        command: "set_task_due_date",
+        args: {
+          request: {
+            taskId: tasks[0].id,
+            dueDate: "2026-08-01",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("passes null explicitly when clearing the due date", async () => {
+    const calls: Array<{
+      command: string;
+      args: Record<string, unknown> | undefined;
+    }> = [];
+    const clearedTask: TaskDto = { ...tasks[0], dueDate: null };
+    const invokeCommand: InvokeCommand = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push({ command, args });
+      return clearedTask as T;
+    };
+    const client = createSmartSpaceClient(invokeCommand);
+
+    await expect(
+      client.setTaskDueDate({ taskId: tasks[0].id, dueDate: null }),
+    ).resolves.toEqual(clearedTask);
+    expect(calls).toEqual([
+      {
+        command: "set_task_due_date",
+        args: {
+          request: { taskId: tasks[0].id, dueDate: null },
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { code: "invalid_input", message: "due date is invalid" },
+    { code: "task_not_found", message: "task does not exist" },
+  ] as const)(
+    "preserves the structured $code error",
+    async ({ code, message }) => {
+      const client = createSmartSpaceClient(async () => {
+        throw { code, message };
+      });
+
+      const error = await client
+        .setTaskDueDate({ taskId: tasks[0].id, dueDate: "2026-08-01" })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(SmartSpaceCommandError);
+      expect(error).toMatchObject({ code, message });
+    },
+  );
+});

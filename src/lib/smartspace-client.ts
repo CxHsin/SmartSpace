@@ -36,6 +36,11 @@ export interface RenameTaskInput {
   readonly title: string;
 }
 
+export interface SetTaskDueDateInput {
+  readonly taskId: string;
+  readonly dueDate: string | null;
+}
+
 export type CommandErrorCode =
   | "invalid_input"
   | "category_not_found"
@@ -67,6 +72,7 @@ export interface SmartSpaceClient {
   createTask(input: CreateTaskInput): Promise<TaskDto>;
   setTaskStatus(input: SetTaskStatusInput): Promise<TaskDto>;
   renameTask(input: RenameTaskInput): Promise<TaskDto>;
+  setTaskDueDate(input: SetTaskDueDateInput): Promise<TaskDto>;
 }
 
 const commandErrorCodes = new Set<CommandErrorCode>([
@@ -130,6 +136,8 @@ export function createSmartSpaceClient(
     setTaskStatus: (request) =>
       invokeTyped<TaskDto>("set_task_status", { request }),
     renameTask: (request) => invokeTyped<TaskDto>("rename_task", { request }),
+    setTaskDueDate: (request) =>
+      invokeTyped<TaskDto>("set_task_due_date", { request }),
   };
 }
 
