@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 27（前端任务截止日期 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
+- 模块 27（前端任务截止日期 IPC 客户端）已提交并推送；模块 28 待登记。
 
 ## Current Goal
 
@@ -53,19 +53,15 @@
 - **模块 24：前端任务状态 IPC 客户端** 已完成实现与审查：新增只读 `SetTaskStatusInput` 与 `SmartSpaceClient.setTaskStatus`，精确调用 `set_task_status` 并传递 `{ request: { taskId, status } }`，不改写输入且返回完整 `TaskDto`；`invalid_input`、`task_not_found` 和未知拒绝复用统一错误边界。3 个新增测试与全量 21 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `cbcd39d` 已推送到 `origin/main`。
 - **模块 25：任务完成/恢复交互** 已完成实现与审查：任务行状态标记升级为可访问的完成/恢复按钮，通过 `SmartSpaceClient.setTaskStatus` 持久化并仅以返回 DTO 替换对应任务；per-row pending 锁允许不同任务独立更新，函数式状态合并支持响应乱序完成，客户端 keyed session 隔离旧请求。按钮具备动作名称、tooltip、稳定 24×24 命中区域、成功/错误 live feedback 与 reduced-motion 支持；1120×720、800×520、640×700 视觉验收无重叠或溢出。25 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 最终 review 结果为 `APPROVE`，无 findings；模块提交 `7e69719` 已推送到 `origin/main`。
 - **模块 26：前端任务重命名 IPC 客户端** 已完成实现与审查：新增只读 `RenameTaskInput` 与 `SmartSpaceClient.renameTask`，精确调用 `rename_task` 并传递 `{ request: { taskId, title } }`；标题原样交由 Rust 领域层规范化，冻结输入保持不变并返回完整 `TaskDto`，现有测试替身显式拒绝意外调用。28 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `6faca3e` 已推送到 `origin/main`。
+- **模块 27：前端任务截止日期 IPC 客户端** 已完成实现与审查：新增只读 `SetTaskDueDateInput` 与 `SmartSpaceClient.setTaskDueDate`，精确调用 `set_task_due_date` 并传递 `{ request: { taskId, dueDate } }`；日期字符串和显式 `null` 原样交给 Rust，缺失字段不会误清除日期，冻结输入保持不变并返回完整 `TaskDto`。32 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `d65f448` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 27：前端任务截止日期 IPC 客户端**（Ready for delivery）
-  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `SetTaskDueDateInput` 与 `setTaskDueDate`，只接通已有 Rust `set_task_due_date` command；不加入日期选择 UI、日期格式化、智能视图或其他任务写操作。
-  - 验收条件：输入类型只读且 `dueDate` 必须显式为 `string | null`；客户端精确调用 `set_task_due_date` 并传递 `{ request: { taskId, dueDate } }`，字符串日期不得在前端改写，`null` 必须原样表示清除；调用不改写冻结输入并返回完整 `TaskDto`；`invalid_input`、`task_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
-  - 实现进度：已新增只读 `SetTaskDueDateInput`、`SmartSpaceClient.setTaskDueDate` 与 `set_task_due_date` 精确 IPC 调用；日期字符串和 `null` 均原样传递，测试独立覆盖设置、清除、冻结输入、完整 DTO 及 `invalid_input`/`task_not_found` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外日期写入；聚焦客户端测试 16/16、全量前端测试 32/32 和 typecheck 已通过。
-  - 验证进度：32 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
-  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；必填只读 `string | null`、日期字符串与显式 `null` 透传、Rust 缺字段拒绝、Tauri 参数、完整 DTO、统一错误边界和测试替身均核对通过，聚焦 3 个测试文件 31/31。
+- None.
 
 ## Next Up
 
-1. 提交并推送模块 27，然后记录交付提交哈希。
+1. 模块 28：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -118,5 +114,6 @@
 - 模块 24 已以提交 `cbcd39d` 推送到 `origin/main`。
 - 模块 25 已以提交 `7e69719` 推送到 `origin/main`。
 - 模块 26 已以提交 `6faca3e` 推送到 `origin/main`。
+- 模块 27 已以提交 `d65f448` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
