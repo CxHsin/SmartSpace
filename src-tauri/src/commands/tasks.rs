@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::Deserialize;
 use tauri::State;
 use uuid::Uuid;
@@ -30,6 +30,20 @@ pub(crate) struct RenameTaskRequest {
     title: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SetTaskDueDateRequest {
+    task_id: String,
+    due_date: RequiredOptionalDate,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RequiredOptionalDate {
+    Date(String),
+    Null(()),
+}
+
 #[tauri::command]
 pub(crate) fn create_task(
     database_state: State<'_, DatabaseState>,
@@ -52,6 +66,14 @@ pub(crate) fn rename_task(
     request: RenameTaskRequest,
 ) -> Result<Task, CommandError> {
     rename_task_from_state(database_state.inner(), request, Utc::now())
+}
+
+#[tauri::command]
+pub(crate) fn set_task_due_date(
+    database_state: State<'_, DatabaseState>,
+    request: SetTaskDueDateRequest,
+) -> Result<Task, CommandError> {
+    set_task_due_date_from_state(database_state.inner(), request, Utc::now())
 }
 
 #[tauri::command]
@@ -130,6 +152,41 @@ fn rename_task_from_state(
         .map_err(CommandError::from)
 }
 
+fn set_task_due_date_from_state(
+    database_state: &DatabaseState,
+    request: SetTaskDueDateRequest,
+    now: DateTime<Utc>,
+) -> Result<Task, CommandError> {
+    let task_id = Uuid::parse_str(&request.task_id)
+        .map(TaskId::from_uuid)
+        .map_err(|_| CommandError::invalid_input("taskId must be a valid UUID"))?;
+    let due_date = match request.due_date {
+        RequiredOptionalDate::Null(()) => None,
+        RequiredOptionalDate::Date(value) => {
+            let bytes = value.as_bytes();
+            let has_canonical_shape = bytes.len() == 10
+                && bytes[4] == b'-'
+                && bytes[7] == b'-'
+                && bytes[..4].iter().all(u8::is_ascii_digit)
+                && bytes[5..7].iter().all(u8::is_ascii_digit)
+                && bytes[8..].iter().all(u8::is_ascii_digit);
+            if !has_canonical_shape {
+                return Err(CommandError::invalid_input("dueDate must use YYYY-MM-DD"));
+            }
+
+            Some(NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|_| {
+                CommandError::invalid_input("dueDate must be a valid calendar date")
+            })?)
+        }
+    };
+
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .set_task_due_date(task_id, due_date, now)
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -140,8 +197,172 @@ mod tests {
 
     use super::{
         create_task_from_state, list_tasks_from_state, rename_task_from_state,
-        set_task_status_from_state, CreateTaskRequest, RenameTaskRequest, SetTaskStatusRequest,
+        set_task_due_date_from_state, set_task_status_from_state, CreateTaskRequest,
+        RenameTaskRequest, RequiredOptionalDate, SetTaskDueDateRequest, SetTaskStatusRequest,
     };
+
+    #[test]
+    fn set_task_due_date_sets_clears_and_preserves_idempotent_time() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task(
+                "Task",
+                CategoryId::INBOX,
+                timestamp("2026-07-28T04:00:00.000000001Z"),
+            )
+            .unwrap();
+
+        let dated = set_task_due_date_from_state(
+            &state,
+            due_date_request(task.id(), Some("2026-08-15")),
+            timestamp("2026-07-28T04:00:01.000000002Z"),
+        )
+        .unwrap();
+        let idempotent = set_task_due_date_from_state(
+            &state,
+            due_date_request(task.id(), Some("2026-08-15")),
+            timestamp("2026-07-28T04:00:02.000000003Z"),
+        )
+        .unwrap();
+        let clear_request: SetTaskDueDateRequest = serde_json::from_value(serde_json::json!({
+            "taskId": task.id().as_uuid().to_string(),
+            "dueDate": null
+        }))
+        .unwrap();
+        let cleared = set_task_due_date_from_state(
+            &state,
+            clear_request,
+            timestamp("2026-07-28T04:00:03.000000004Z"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            dated.due_date(),
+            Some(NaiveDate::from_ymd_opt(2026, 8, 15).unwrap())
+        );
+        assert_eq!(
+            dated.updated_at(),
+            timestamp("2026-07-28T04:00:01.000000002Z")
+        );
+        assert_eq!(idempotent.updated_at(), dated.updated_at());
+        assert_eq!(cleared.due_date(), None);
+        assert_eq!(
+            cleared.updated_at(),
+            timestamp("2026-07-28T04:00:03.000000004Z")
+        );
+        assert_eq!(
+            state.lock().unwrap().task(task.id()).unwrap(),
+            Some(cleared)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_task_due_date_rejects_invalid_input_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        let task = state
+            .lock()
+            .unwrap()
+            .create_task(
+                "Task",
+                CategoryId::INBOX,
+                timestamp("2026-07-28T04:00:00.000000001Z"),
+            )
+            .unwrap();
+
+        let invalid_id = set_task_due_date_from_state(
+            &state,
+            SetTaskDueDateRequest {
+                task_id: "not-a-uuid".to_owned(),
+                due_date: RequiredOptionalDate::Date("2026-08-15".to_owned()),
+            },
+            timestamp("2026-07-28T04:00:01.000000002Z"),
+        )
+        .unwrap_err();
+        assert_eq!(invalid_id.code, CommandErrorCode::InvalidInput);
+        for invalid_date in ["2026-02-29", "2026-8-05", "+2026-08-05"] {
+            let error = set_task_due_date_from_state(
+                &state,
+                due_date_request(task.id(), Some(invalid_date)),
+                timestamp("2026-07-28T04:00:01.000000002Z"),
+            )
+            .unwrap_err();
+            assert_eq!(error.code, CommandErrorCode::InvalidInput);
+        }
+        assert_eq!(
+            state.lock().unwrap().task(task.id()).unwrap().unwrap(),
+            task
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_task_due_date_requires_the_due_date_field() {
+        let result = serde_json::from_value::<SetTaskDueDateRequest>(serde_json::json!({
+            "taskId": crate::domain::TaskId::new().as_uuid().to_string()
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_task_due_date_reports_a_missing_task_with_a_stable_code() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = set_task_due_date_from_state(
+            &state,
+            due_date_request(crate::domain::TaskId::new(), Some("2026-08-15")),
+            timestamp("2026-07-28T04:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::TaskNotFound);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_task_due_date_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, title, status, due_date, category_id, position, created_at, updated_at
+                 ) VALUES (?1, 'Broken', 'open', NULL, ?2, 0, ?3, ?3)",
+                params![
+                    "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    CategoryId::INBOX.as_uuid().to_string(),
+                    "2026-07-28T04:00:00.000000001Z"
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = set_task_due_date_from_state(
+            &state,
+            due_date_request(crate::domain::TaskId::new(), Some("2026-08-15")),
+            timestamp("2026-07-28T04:00:01.000000002Z"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn rename_task_normalizes_persists_and_preserves_idempotent_time() {
@@ -642,6 +863,19 @@ mod tests {
         RenameTaskRequest {
             task_id: task_id.as_uuid().to_string(),
             title: title.to_owned(),
+        }
+    }
+
+    fn due_date_request(
+        task_id: crate::domain::TaskId,
+        due_date: Option<&str>,
+    ) -> SetTaskDueDateRequest {
+        SetTaskDueDateRequest {
+            task_id: task_id.as_uuid().to_string(),
+            due_date: match due_date {
+                Some(value) => RequiredOptionalDate::Date(value.to_owned()),
+                None => RequiredOptionalDate::Null(()),
+            },
         }
     }
 
