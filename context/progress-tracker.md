@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 13（任务截止日期 Tauri command）已通过验证和独立 review，正在完成提交与推送。
+- 模块 13（任务截止日期 Tauri command）已提交并推送；模块 14 待登记。
 
 ## Current Goal
 
@@ -85,5 +85,6 @@
 - 模块 10 已以提交 `ae62bba` 推送到 `origin/main`。
 - 模块 11 已以提交 `a25f67a` 推送到 `origin/main`。
 - 模块 12 已以提交 `1456c57` 推送到 `origin/main`。
+- 模块 13 已以提交 `2563626` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
