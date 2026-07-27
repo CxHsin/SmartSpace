@@ -19,6 +19,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::categories::create_category,
             commands::categories::list_categories,
             commands::tasks::create_task,
             commands::tasks::list_tasks

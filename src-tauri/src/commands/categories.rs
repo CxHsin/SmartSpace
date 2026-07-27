@@ -1,10 +1,24 @@
+use serde::Deserialize;
 use tauri::State;
 
 use super::CommandError;
 use crate::{
-    domain::Category,
+    domain::{Category, CategoryName},
     storage::{DatabaseRuntimeError, DatabaseState},
 };
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CreateCategoryRequest {
+    name: String,
+}
+
+#[tauri::command]
+pub(crate) fn create_category(
+    database_state: State<'_, DatabaseState>,
+    request: CreateCategoryRequest,
+) -> Result<Category, CommandError> {
+    create_category_from_state(database_state.inner(), request)
+}
 
 #[tauri::command]
 pub(crate) fn list_categories(
@@ -23,6 +37,19 @@ fn list_categories_from_state(
         .map_err(CommandError::from)
 }
 
+fn create_category_from_state(
+    database_state: &DatabaseState,
+    request: CreateCategoryRequest,
+) -> Result<Category, CommandError> {
+    let name = CategoryName::new(request.name)
+        .map_err(|error| CommandError::invalid_input(error.to_string()))?;
+    let mut database = database_state.lock().map_err(CommandError::from)?;
+    database
+        .create_category(name.as_str())
+        .map_err(DatabaseRuntimeError::from)
+        .map_err(CommandError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, sync::Arc, thread};
@@ -30,12 +57,116 @@ mod tests {
     use rusqlite::Connection;
     use uuid::Uuid;
 
-    use super::list_categories_from_state;
+    use super::{create_category_from_state, list_categories_from_state, CreateCategoryRequest};
     use crate::{
         commands::CommandErrorCode,
         domain::CategoryId,
         storage::{DatabaseState, DATABASE_FILE_NAME},
     };
+
+    #[test]
+    fn create_category_normalizes_and_persists_the_name() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let created = create_category_from_state(
+            &state,
+            CreateCategoryRequest {
+                name: "  Work  ".to_owned(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(created.name().as_str(), "Work");
+        assert_eq!(created.position(), 1);
+        assert_eq!(
+            state.lock().unwrap().category(created.id()).unwrap(),
+            Some(created)
+        );
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_category_rejects_a_blank_name_without_writing() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = create_category_from_state(
+            &state,
+            CreateCategoryRequest {
+                name: " \t ".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::InvalidInput);
+        assert_eq!(state.lock().unwrap().list_categories().unwrap().len(), 1);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_category_reports_unicode_duplicates_with_a_stable_code() {
+        let root = temporary_root();
+        let state = DatabaseState::initialize(&root).unwrap();
+        create_category_from_state(
+            &state,
+            CreateCategoryRequest {
+                name: "École".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let error = create_category_from_state(
+            &state,
+            CreateCategoryRequest {
+                name: "éCOLE".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DuplicateCategoryName);
+        assert_eq!(
+            serde_json::to_value(error).unwrap()["code"],
+            "duplicate_category_name"
+        );
+        assert_eq!(state.lock().unwrap().list_categories().unwrap().len(), 2);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_category_keeps_persisted_corruption_distinct_from_invalid_input() {
+        let root = temporary_root();
+        drop(DatabaseState::initialize(&root).unwrap());
+        let connection = Connection::open(root.join(DATABASE_FILE_NAME)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO categories (id, name, position, kind)
+                 VALUES ('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Broken', 1, 'user')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let state = DatabaseState::initialize(&root).unwrap();
+
+        let error = create_category_from_state(
+            &state,
+            CreateCategoryRequest {
+                name: "Valid".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn list_categories_returns_persisted_domain_objects_in_order() {
