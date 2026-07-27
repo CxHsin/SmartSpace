@@ -3,6 +3,7 @@ use serde::Serialize;
 use crate::storage::{DatabaseRuntimeError, StorageError};
 
 pub(crate) mod categories;
+pub(crate) mod tasks;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

@@ -19,7 +19,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::categories::list_categories
+            commands::categories::list_categories,
+            commands::tasks::list_tasks
         ])
         .run(tauri::generate_context!())
         .expect("failed to run SmartSpace");
