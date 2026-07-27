@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 29（前端分类内任务重排 IPC 客户端）已通过实现、验证与独立 review，等待提交和推送。
+- 模块 29（前端分类内任务重排 IPC 客户端）已提交并推送；模块 30 待登记。
 
 ## Current Goal
 
@@ -55,19 +55,15 @@
 - **模块 26：前端任务重命名 IPC 客户端** 已完成实现与审查：新增只读 `RenameTaskInput` 与 `SmartSpaceClient.renameTask`，精确调用 `rename_task` 并传递 `{ request: { taskId, title } }`；标题原样交由 Rust 领域层规范化，冻结输入保持不变并返回完整 `TaskDto`，现有测试替身显式拒绝意外调用。28 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `6faca3e` 已推送到 `origin/main`。
 - **模块 27：前端任务截止日期 IPC 客户端** 已完成实现与审查：新增只读 `SetTaskDueDateInput` 与 `SmartSpaceClient.setTaskDueDate`，精确调用 `set_task_due_date` 并传递 `{ request: { taskId, dueDate } }`；日期字符串和显式 `null` 原样交给 Rust，缺失字段不会误清除日期，冻结输入保持不变并返回完整 `TaskDto`。32 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `d65f448` 已推送到 `origin/main`。
 - **模块 28：前端任务跨分类移动 IPC 客户端** 已完成实现与审查：新增只读 `MoveTaskInput` 与 `SmartSpaceClient.moveTask`，精确调用 `move_task` 并传递 `{ request: { taskId, categoryId } }`；冻结输入保持不变并返回完整移动后 `TaskDto`，三种领域错误继续使用统一错误边界。36 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `fd64d87` 已推送到 `origin/main`。
+- **模块 29：前端分类内任务重排 IPC 客户端** 已完成实现与审查：新增只读 `ReorderTasksInput` 与 `SmartSpaceClient.reorderTasks`，精确调用 `reorder_tasks` 并传递完整 `{ request: { categoryId, orderedTaskIds } }`；冻结输入和只读 ID 序列保持不变，返回完整只读 `TaskDto` 数组。39 个前端测试、108 个 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `b750744` 已推送到 `origin/main`。
 
 ## In Progress
 
-- **模块 29：前端分类内任务重排 IPC 客户端**（Ready for delivery）
-  - 范围：在现有可注入 `SmartSpaceClient` 中新增强类型 `ReorderTasksInput` 与 `reorderTasks`，只接通已有 Rust `reorder_tasks` command；不加入拖拽 UI、键盘排序、跨分类移动或其他任务写操作。
-  - 验收条件：输入对象与 `orderedTaskIds` 序列均为只读；客户端精确调用 `reorder_tasks` 并传递 `{ request: { categoryId, orderedTaskIds } }`，调用不改写冻结输入并返回完整只读 `TaskDto` 数组；`invalid_input`、`category_not_found` 与未知拒绝继续通过统一 `SmartSpaceCommandError` 边界；现有命令行为不回归，所有 `SmartSpaceClient` 测试替身显式处理新方法。
-  - 实现进度：已新增只读 `ReorderTasksInput`、`SmartSpaceClient.reorderTasks` 与 `reorder_tasks` 精确 IPC 调用；输入对象和 ID 序列均保持只读且原样传递，测试覆盖冻结完整序列、完整重排后 DTO 数组、精确请求及 `invalid_input`/`category_not_found` 结构化错误。现有 App 与 workspace loader 测试替身均显式拒绝意外重排调用；聚焦客户端测试 23/23、全量前端测试 39/39 和 typecheck 已通过。
-  - 验证进度：39 个前端测试、108 个 Rust 测试、前端 format/lint/typecheck/build、Rust fmt/clippy/check（all targets/features）、`git diff --check` 与 `tauri build --no-bundle` 全部通过；本模块无可见 UI 变化，不需要新增视觉验收。
-  - Review 结果：`gpt-5.6-sol medium` 独立 review 为 `APPROVE`，无 findings；只读输入与 ID 序列、`reorder_tasks` 参数封装、完整只读 `TaskDto` 数组和错误边界均核对通过，聚焦测试 38/38。
+- None.
 
 ## Next Up
 
-1. 提交并推送模块 29，然后记录交付提交哈希。
+1. 模块 30：按最小可验收范围确定并登记。
 
 ## Open Questions
 
@@ -122,5 +118,6 @@
 - 模块 26 已以提交 `6faca3e` 推送到 `origin/main`。
 - 模块 27 已以提交 `d65f448` 推送到 `origin/main`。
 - 模块 28 已以提交 `fd64d87` 推送到 `origin/main`。
+- 模块 29 已以提交 `b750744` 推送到 `origin/main`。
 - 初始 PATH 探测未发现 Rust；随后确认 `rustc`/`cargo` `1.97.1` 位于 `%USERPROFILE%\\.cargo\\bin`，后续 Rust 验证必须使用显式路径或先加入该目录。
 - 用户选择首阶段仅交付开发机可运行版本，不制作安装包；`tauri build --no-bundle` 是当前发布构建门禁。
