@@ -30,6 +30,66 @@ const tasks: readonly TaskDto[] = [
   },
 ];
 
+describe("SmartSpaceClient executable picker command", () => {
+  it.each([
+    ["selected executable", "C:\\Program Files\\Example\\example.exe"],
+    ["cancelled selection", null],
+  ] as const)(
+    "returns the %s without command arguments",
+    async (_case, result) => {
+      const calls: Array<{
+        command: string;
+        args: Record<string, unknown> | undefined;
+      }> = [];
+      const invokeCommand: InvokeCommand = async <T>(
+        command: string,
+        args?: Record<string, unknown>,
+      ): Promise<T> => {
+        calls.push({ command, args });
+        return result as T;
+      };
+      const client = createSmartSpaceClient(invokeCommand);
+
+      await expect(client.pickApplicationExecutable()).resolves.toBe(result);
+      expect(calls).toEqual([
+        { command: "pick_application_executable", args: undefined },
+      ]);
+    },
+  );
+
+  it("preserves the structured invalid_input error", async () => {
+    const client = createSmartSpaceClient(async () => {
+      throw { code: "invalid_input", message: "executable is unavailable" };
+    });
+
+    const error = await client
+      .pickApplicationExecutable()
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(SmartSpaceCommandError);
+    expect(error).toMatchObject({
+      code: "invalid_input",
+      message: "executable is unavailable",
+    });
+  });
+
+  it("normalizes an unknown picker rejection", async () => {
+    const client = createSmartSpaceClient(async () => {
+      throw new Error("dialog unavailable");
+    });
+
+    const error = await client
+      .pickApplicationExecutable()
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(SmartSpaceCommandError);
+    expect(error).toMatchObject({
+      code: "unknown",
+      message: "dialog unavailable",
+    });
+  });
+});
+
 describe("SmartSpaceClient read commands", () => {
   it("invokes the exact category and task commands without arguments", async () => {
     const calls: Array<{

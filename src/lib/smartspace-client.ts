@@ -103,6 +103,7 @@ export type InvokeCommand = <T>(
 ) => Promise<T>;
 
 export interface SmartSpaceClient {
+  pickApplicationExecutable(): Promise<string | null>;
   listCategories(): Promise<readonly CategoryDto[]>;
   listTasks(): Promise<readonly TaskDto[]>;
   createTask(input: CreateTaskInput): Promise<TaskDto>;
@@ -174,6 +175,8 @@ export function createSmartSpaceClient(
   }
 
   return {
+    pickApplicationExecutable: () =>
+      invokeTyped<string | null>("pick_application_executable"),
     listCategories: () =>
       invokeTyped<readonly CategoryDto[]>("list_categories"),
     listTasks: () => invokeTyped<readonly TaskDto[]>("list_tasks"),

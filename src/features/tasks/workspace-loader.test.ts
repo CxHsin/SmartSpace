@@ -46,6 +46,11 @@ describe("loadTaskWorkspace", () => {
         }),
     );
     const client: SmartSpaceClient = {
+      pickApplicationExecutable: vi.fn(async () => {
+        throw new Error(
+          "Workspace loader called pickApplicationExecutable unexpectedly.",
+        );
+      }),
       listCategories,
       listTasks,
       createTask: vi.fn(async () => {

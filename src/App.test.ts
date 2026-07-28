@@ -59,6 +59,13 @@ const unexpectedSetTaskStatus: SmartSpaceClient["setTaskStatus"] = async () => {
   throw new Error("Workspace test called setTaskStatus unexpectedly.");
 };
 
+const unexpectedPickApplicationExecutable: SmartSpaceClient["pickApplicationExecutable"] =
+  async () => {
+    throw new Error(
+      "Workspace test called pickApplicationExecutable unexpectedly.",
+    );
+  };
+
 const unexpectedRenameTask: SmartSpaceClient["renameTask"] = async () => {
   throw new Error("Workspace test called renameTask unexpectedly.");
 };
@@ -111,6 +118,7 @@ function createClient(
   moveTask: SmartSpaceClient["moveTask"] = unexpectedMoveTask,
 ): SmartSpaceClient {
   return {
+    pickApplicationExecutable: unexpectedPickApplicationExecutable,
     listCategories: vi.fn(async () => categories),
     listTasks: vi.fn(async () => taskResult),
     createTask,
@@ -163,6 +171,7 @@ describe("App task workspace lifecycle", () => {
     const staleCategories = createDeferred<readonly CategoryDto[]>();
     const staleTasks = createDeferred<readonly TaskDto[]>();
     const staleClient: SmartSpaceClient = {
+      pickApplicationExecutable: unexpectedPickApplicationExecutable,
       listCategories: () => staleCategories.promise,
       listTasks: () => staleTasks.promise,
       createTask: async () => {
@@ -252,6 +261,7 @@ describe("App task workspace lifecycle", () => {
   it("starts a fresh loading session when switching from A to B and back", async () => {
     const freshATasks = createDeferred<readonly TaskDto[]>();
     const clientA: SmartSpaceClient = {
+      pickApplicationExecutable: unexpectedPickApplicationExecutable,
       listCategories: vi.fn(async () => categories),
       listTasks: vi
         .fn<SmartSpaceClient["listTasks"]>()
@@ -280,6 +290,7 @@ describe("App task workspace lifecycle", () => {
     const pendingBCategories = createDeferred<readonly CategoryDto[]>();
     const pendingBTasks = createDeferred<readonly TaskDto[]>();
     const clientB: SmartSpaceClient = {
+      pickApplicationExecutable: unexpectedPickApplicationExecutable,
       listCategories: () => pendingBCategories.promise,
       listTasks: () => pendingBTasks.promise,
       createTask: vi.fn(async () => {
@@ -341,6 +352,7 @@ describe("App task workspace lifecycle", () => {
         ),
       ]);
     const client: SmartSpaceClient = {
+      pickApplicationExecutable: unexpectedPickApplicationExecutable,
       listCategories: vi.fn(async () => categories),
       listTasks,
       createTask: vi.fn(async () => {

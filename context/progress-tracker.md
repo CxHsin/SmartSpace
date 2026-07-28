@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 41（原生 Windows 可执行文件选择 command）已提交并推送；模块 42 待登记。
+- 模块 42（前端可执行文件选择 IPC 客户端）已通过验证与独立 review，正在提交交付。
 
 ## Current Goal
 
@@ -68,6 +68,7 @@
 - **模块 39：任务截止日期编辑交互** 已完成实现与审查：任务行加入原生日期编辑、设置、显式清除、取消、焦点恢复、类型化错误和共享行级并发锁，通过既有 `set_task_due_date` IPC 持久化并只合并 command 返回 DTO；Today 任务因改期退出列表时焦点转移到持久视图标题。首轮 review 的临界宽度裁切和 Today 焦点丢失两个 P2 已修复，复审结果为 `APPROVE`。75 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁和 Tauri release 构建通过；640、800、996、1040、1100、1116、1120px 视觉/边界实测无横向溢出、裁切或重叠，浏览器控制台无错误；模块提交 `f2aa6c2` 已推送到 `origin/main`。
 - **模块 40：任务跨分类移动交互** 已完成实现与审查：任务行加入当前分类选择、移动、取消、焦点恢复、结构化错误和共享行级并发锁，通过既有 `move_task` IPC 持久化；App 按 command 返回 position 压缩源分类、插入并连续化目标分类，并用会话级 Promise 队列串行提交和应用不同任务的移动，保证 All 视图顺序与 SQLite 一致。成功后分类计数与视图立即同步，移出当前分类时焦点落到持久标题，keyed client session 隔离旧结果。两轮 review 发现的连续移动旧 position 与不同任务并发逆序两个 P1 均已修复，`gpt-5.6-sol medium` 最终复审结果为 `APPROVE`，无 findings。85 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120×720、800×520、640×700 的长任务、超长无断点分类名、编辑与成功状态视觉验收无溢出、裁切或重叠，浏览器控制台无错误；模块提交 `f85562d` 已推送到 `origin/main`。
 - **模块 41：原生 Windows 可执行文件选择 command** 已完成实现与审查：引入与 Tauri 2.11.5 共用运行时的官方 `tauri-plugin-dialog` 2.7.2，初始化 plugin 并注册窄 `pick_application_executable` command；异步 command 只打开原生单文件 `.exe` 选择器，取消返回 `null`，返回前复验绝对路径、无损 Unicode、大小写不敏感扩展名、存在性和普通文件类型，失败统一为结构化 `invalid_input`，不访问数据库或进程 API。4 条聚焦测试覆盖全部纯边界分支；85 条前端测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；真实系统对话框交互留待 React 添加应用入口端到端验收，未来启动边界必须再次验证文件并把 TOCTOU 失败映射为可恢复状态；模块提交 `b65dafb` 已推送到 `origin/main`。
+- **模块 42：前端可执行文件选择 IPC 客户端** 已完成实现与审查：可注入 `SmartSpaceClient` 新增必需的 `pickApplicationExecutable(): Promise<string | null>`，默认客户端精确调用 `pick_application_executable` 且不传 args，选中路径与取消 `null` 原样返回，`invalid_input` 和未知拒绝复用统一 `SmartSpaceCommandError` 边界；App 与 workspace loader 的全部手写客户端替身显式拒绝意外 picker 调用。新增 4 条客户端测试；89 条前端测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；与现有 IPC 方法一致，运行时响应形状由类型化 Tauri 边界保证，当前不重复解码。
 
 ## In Progress
 
@@ -75,8 +76,7 @@
 
 ## Next Up
 
-1. 模块 42：前端可执行文件选择 IPC 客户端。
-2. Upcoming 与应用配置重复规则获得用户确认后，再登记对应视图或持久化模块。
+1. Upcoming 与应用配置重复规则获得用户确认后，再登记对应视图或持久化模块。
 
 ## Open Questions
 
