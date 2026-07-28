@@ -152,13 +152,56 @@ If there are no findings, write: `No actionable findings.`
 
 #### Required Follow-up
 
-- [ ] `WP01-R1` Implementation Agent: authorize IPC senders and test rejection of an unauthorized sender.
-- [ ] `WP01-R2` Implementation Agent: make the app-info request type reject unexpected properties and add type-level coverage.
-- [ ] `WP01-R3` Implementation Agent: enforce forbidden renderer imports across the complete renderer boundary.
+- [x] `WP01-R1` Implementation Agent: authorize IPC senders and test rejection of an unauthorized sender.
+- [x] `WP01-R2` Implementation Agent: make the app-info request type reject unexpected properties and add type-level coverage.
+- [x] `WP01-R3` Implementation Agent: enforce forbidden renderer imports across the complete renderer boundary.
 
 #### Resolution
 
-- Status: Open
-- Resolution commit: `not available`
-- Verified by: not yet verified
-- Notes: A separate implementation fix round and re-review are required.
+- Status: Fixed and verified
+- Resolution commit: `6c3704ad1d85d863398db0ff22f53e3d9db40a57`
+- Verified by: `GPT-5.6 Sol review Agent`
+- Notes: Re-review confirmed authorized `WebContents` identity checks, exact empty-request type coverage, and renderer-project-wide forbidden-import enforcement. All required automated checks and both Electron smoke paths passed.
+
+### Re-review 2026-07-28 - WP-01
+
+#### Review Metadata
+
+- Review Agent: `GPT-5.6 Sol review Agent`
+- Implementation commit or range: `f11e5179ef13ae9f3ddf56c4cbea811785bd6748..6c3704ad1d85d863398db0ff22f53e3d9db40a57`
+- Handoff reviewed: Yes
+- Review scope: WP-01 review-fix round for `WP01-R1`, `WP01-R2`, and `WP01-R3`
+- Outcome: Approved
+
+#### Findings
+
+No actionable findings.
+
+#### Verification
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Diff matches recorded scope | Pass | The range contains one implementation commit limited to the three accepted findings, focused tests, and the implementation handoff. |
+| Relevant automated tests | Pass | `npm.cmd test`: 3 files, 10 tests passed, including unauthorized sender rejection, compile-time request strictness, and the renderer-boundary negative fixture. |
+| Typecheck/build | Pass | `npm.cmd run typecheck` and `npm.cmd run build` passed. |
+| Manual acceptance checks | Pass | `node scripts/smoke-electron.mjs` passed; `$env:SMARTSPACE_SMOKE_TEST='1'; npm.cmd run dev` loaded the development renderer and exited successfully. |
+| Security/lifecycle review | Pass | `app:get-info` rejects a sender other than the active window's `WebContents`; the request type rejects unexpected fields; the forbidden-import test derives its complete renderer file set from `tsconfig.app.json`. |
+
+#### Open Questions and Assumptions
+
+- The active SmartSpace renderer is intentionally identified by its `WebContents` object. Future multi-window or subframe IPC must define and authorize its own sender boundary rather than reusing this handler registration unchanged.
+
+#### Residual Risk
+
+- Packaged Windows behavior remains unverified and is deferred to WP-10. The Electron smoke check covers a valid request through the real preload/main transport; unauthorized sender and invalid payload paths remain covered by focused automated tests rather than a second real renderer.
+
+#### Required Follow-up
+
+- None.
+
+#### Resolution
+
+- Status: Fixed and verified
+- Resolution commit: `6c3704ad1d85d863398db0ff22f53e3d9db40a57`
+- Verified by: `GPT-5.6 Sol review Agent`
+- Notes: `WP01-R1`, `WP01-R2`, and `WP01-R3` are resolved; WP-01 is approved.
