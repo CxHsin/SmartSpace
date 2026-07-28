@@ -113,6 +113,22 @@ describe('quick-panel window creation', () => {
     });
   });
 
+  it('clamps the first launch to a work area smaller than the default window', () => {
+    const workArea = { x: 80, y: 40, width: 640, height: 400 };
+    const bounds = getCenteredWindowBounds(workArea);
+
+    expect(bounds).toEqual({
+      x: 80,
+      y: 40,
+      width: 640,
+      height: 400,
+    });
+    expect(createQuickPanelWindowOptions('preload.cjs', bounds)).toEqual(expect.objectContaining({
+      minWidth: 640,
+      minHeight: 400,
+    }));
+  });
+
   it('creates a hidden frameless always-on-top window outside the taskbar', () => {
     const webContents = {
       setWindowOpenHandler: vi.fn(),

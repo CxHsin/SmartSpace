@@ -18,6 +18,24 @@ import {
   type WindowSetHideOnBlurResponse,
 } from '../shared/ipc';
 
+const shortcutStatusListeners = new Set<(event: ShortcutStatusEvent) => void>();
+let latestShortcutStatus: ShortcutStatusEvent | null = null;
+
+const shortcutStatusHandler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+  const parsedEvent = parseShortcutStatusEvent(payload);
+  if (!parsedEvent.ok) {
+    return;
+  }
+
+  latestShortcutStatus = parsedEvent.value;
+  for (const listener of shortcutStatusListeners) {
+    listener(parsedEvent.value);
+  }
+};
+
+// Register before exposing the API so events sent during initial page load can be replayed.
+ipcRenderer.on(IPC_CHANNELS.shellShortcutStatus, shortcutStatusHandler);
+
 const api: SmartSpaceApi = {
   app: {
     getInfo: async (request: AppInfoRequest): Promise<IpcResponse<AppInfoResponse>> => {
@@ -80,15 +98,11 @@ const api: SmartSpaceApi = {
       return () => ipcRenderer.removeListener(IPC_CHANNELS.shellReady, handler);
     },
     onShortcutStatus: (listener: (event: ShortcutStatusEvent) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
-        const parsedEvent = parseShortcutStatusEvent(payload);
-        if (parsedEvent.ok) {
-          listener(parsedEvent.value);
-        }
-      };
-
-      ipcRenderer.on(IPC_CHANNELS.shellShortcutStatus, handler);
-      return () => ipcRenderer.removeListener(IPC_CHANNELS.shellShortcutStatus, handler);
+      shortcutStatusListeners.add(listener);
+      if (latestShortcutStatus !== null) {
+        listener(latestShortcutStatus);
+      }
+      return () => shortcutStatusListeners.delete(listener);
     },
   },
 };

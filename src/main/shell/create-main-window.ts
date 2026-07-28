@@ -4,6 +4,8 @@ import { createSecureRendererPreferences, isAllowedRendererNavigation } from './
 
 export const DEFAULT_WINDOW_WIDTH = 1180;
 export const DEFAULT_WINDOW_HEIGHT = 760;
+export const MIN_WINDOW_WIDTH = 780;
+export const MIN_WINDOW_HEIGHT = 520;
 
 export interface MainWindowPaths {
   readonly preload: string;
@@ -22,11 +24,15 @@ export function getCenteredWindowBounds(
   width = DEFAULT_WINDOW_WIDTH,
   height = DEFAULT_WINDOW_HEIGHT,
 ): Pick<Rectangle, 'x' | 'y' | 'width' | 'height'> {
+  // Relax the normal size below the configured minimum when the work area itself is smaller.
+  const boundedWidth = Math.min(Math.max(1, width), Math.max(1, workArea.width));
+  const boundedHeight = Math.min(Math.max(1, height), Math.max(1, workArea.height));
+
   return {
-    x: workArea.x + Math.max(0, Math.floor((workArea.width - width) / 2)),
-    y: workArea.y + Math.max(0, Math.floor((workArea.height - height) / 2)),
-    width,
-    height,
+    x: workArea.x + Math.floor((workArea.width - boundedWidth) / 2),
+    y: workArea.y + Math.floor((workArea.height - boundedHeight) / 2),
+    width: boundedWidth,
+    height: boundedHeight,
   };
 }
 
@@ -36,13 +42,13 @@ export function createQuickPanelWindowOptions(
 ): BrowserWindowConstructorOptions {
   return {
     ...bounds,
-    minWidth: 780,
-    minHeight: 520,
     show: false,
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
+    minWidth: Math.min(MIN_WINDOW_WIDTH, bounds.width),
+    minHeight: Math.min(MIN_WINDOW_HEIGHT, bounds.height),
     backgroundColor: '#151719',
     webPreferences: createSecureRendererPreferences(preload),
   };
