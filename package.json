@@ -4,8 +4,18 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/dev.mjs",
+    "dev:renderer": "vite --host 127.0.0.1 --strictPort",
+    "dev:electron": "electron .",
+    "build:renderer": "vite build",
+    "build:electron": "node scripts/build-electron.mjs",
+    "build": "tsc -b && npm run build:renderer && npm run build:electron",
+    "start": "electron .",
+    "package:dir": "npm run build && electron-builder --dir",
+    "package": "npm run build && electron-builder",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:electron": "npm run build && node scripts/smoke-electron.mjs",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview --host 0.0.0.0"
   },
@@ -17,10 +27,30 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^4.1.10"
+  },
+  "main": "dist/electron/main.cjs",
+  "build": {
+    "appId": "com.smartspace.app",
+    "productName": "SmartSpace",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "dir"
+    }
   }
 }
