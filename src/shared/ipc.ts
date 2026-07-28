@@ -5,7 +5,7 @@ export const IPC_CHANNELS = {
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
-export type AppInfoRequest = Record<never, never>;
+export type AppInfoRequest = Readonly<Record<string, never>>;
 
 export interface AppInfoResponse {
   readonly name: string;
@@ -16,7 +16,7 @@ export interface ShellReadyEvent {
   readonly version: string;
 }
 
-export type IpcErrorCode = 'invalid-input' | 'internal-error' | 'transport-error';
+export type IpcErrorCode = 'invalid-input' | 'unauthorized-sender' | 'internal-error' | 'transport-error';
 
 export interface IpcError {
   readonly code: IpcErrorCode;
@@ -113,6 +113,7 @@ export function isIpcError(value: unknown): value is IpcError {
   return (
     isRecord(value) &&
     (value.code === 'invalid-input' ||
+      value.code === 'unauthorized-sender' ||
       value.code === 'internal-error' ||
       value.code === 'transport-error') &&
     typeof value.message === 'string' &&

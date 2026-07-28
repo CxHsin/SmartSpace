@@ -1,11 +1,29 @@
-import { ipcMain, type WebContents } from 'electron';
-import { IPC_CHANNELS, type AppInfoResponse } from '../../shared/ipc';
+import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { failure, IPC_CHANNELS, type AppInfoResponse, type IpcResponse } from '../../shared/ipc';
 import { createAppInfoHandler } from './handlers';
 
-export function registerIpcHandlers(provider: () => AppInfoResponse): void {
-  ipcMain.removeHandler(IPC_CHANNELS.appGetInfo);
+export function createAuthorizedAppInfoHandler(
+  provider: () => AppInfoResponse,
+  authorizedContents: WebContents,
+): (event: Pick<IpcMainInvokeEvent, 'sender'>, request: unknown) => Promise<IpcResponse<AppInfoResponse>> {
   const handleAppInfo = createAppInfoHandler(provider);
-  ipcMain.handle(IPC_CHANNELS.appGetInfo, (_event, request: unknown) => handleAppInfo(request));
+
+  return async (event, request) => {
+    if (event.sender !== authorizedContents) {
+      return failure({
+        code: 'unauthorized-sender',
+        message: 'The IPC sender is not the active SmartSpace renderer.',
+        details: { field: 'sender' },
+      });
+    }
+
+    return handleAppInfo(request);
+  };
+}
+
+export function registerIpcHandlers(provider: () => AppInfoResponse, authorizedContents: WebContents): void {
+  ipcMain.removeHandler(IPC_CHANNELS.appGetInfo);
+  ipcMain.handle(IPC_CHANNELS.appGetInfo, createAuthorizedAppInfoHandler(provider, authorizedContents));
 }
 
 export function emitShellReady(contents: WebContents, version: string): void {

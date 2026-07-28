@@ -15,42 +15,36 @@ Use `None` when a field is genuinely not applicable. Do not use `None` for skipp
 ### Assignment
 
 - Work package: `WP-01: Electron Foundation`
-- Implementation Agent: `Implementation Agent`
-- Started at: `2026-07-28 17:10:33 +08:00`
-- Completed at: `2026-07-28 17:29:48 +08:00`
-- Starting commit: `6fd61b921a67378356db5bfa813a1e8f59065366`
-- Review commit or range: `6fd61b921a67378356db5bfa813a1e8f59065366..HEAD` (single WP-01 implementation commit)
+- Implementation Agent: `GPT-5.6 Luna implementation Agent` (review-fix round)
+- Started at: `2026-07-28 17:42:11 +08:00`
+- Completed at: `2026-07-28 17:58:30 +08:00`
+- Starting commit: `f11e5179ef13ae9f3ddf56c4cbea811785bd6748`
+- Review commit or range: `f11e5179ef13ae9f3ddf56c4cbea811785bd6748..HEAD` (single WP-01 review-fix commit)
 - Handoff status: `Ready for review`
 
 ### Intended Scope
 
 Summarize the assigned outcome and list the acceptance criteria targeted in this round.
 
-- Establish a secure Electron main/preload shell connected to the existing Vite renderer.
-- Provide development, production build/launch, packaging, test, and smoke-check commands.
-- Define validated typed IPC request/response/event/error contracts with one working request.
-- Keep renderer access behind the preload bridge and define shell, repository, app-host, and renderer boundaries.
-- Add baseline automated tests and an ADR for Electron, SQLite, native bridge, and packaging choices.
+- Fix accepted review finding R1 by authorizing `app:get-info` only for the active SmartSpace renderer and returning a structured unauthorized-sender error.
+- Fix accepted review finding R2 with an exact typed empty request contract and compile-time extra-field coverage while retaining `{}` on the IPC wire.
+- Fix accepted review finding R3 by checking every file in the configured renderer TypeScript project for forbidden Node.js, Electron, and SQLite imports, with a negative fixture.
 
 ### Constraints Applied
 
 List only constraints that materially affected this implementation. Include relevant PRD rules, architecture boundaries, platform assumptions, or decisions inherited from an accepted review.
 
-- Electron main owns shell lifecycle and IPC registration; renderer code receives only the typed preload API.
-- Context isolation, sandboxing, disabled Node integration, navigation restrictions, and a restrictive CSP are foundation security invariants.
-- SQLite repositories and Win32 hosting remain interfaces/decisions only; their implementations belong to later work packages.
-- The Electron startup smoke check verifies the development-independent production renderer and preload bridge, but is not packaged Windows validation.
+- Electron main owns IPC registration and authorizes the active SmartSpace `WebContents`; renderer code receives only the typed preload API.
+- Context isolation, sandboxing, disabled Node integration, navigation restrictions, and a restrictive CSP remain foundation security invariants.
+- The existing empty-object `app:get-info` IPC wire contract remains unchanged for runtime compatibility.
 
 ### Work Completed
 
 Describe observable behavior that was actually implemented. Use concise statements that a Reviewer can verify in code or by running the application.
 
-- Added Electron `43.2.0` main and self-contained sandboxed preload bundles around the existing Vite renderer.
-- Added a development runner that builds Electron entry points, starts Vite on loopback, injects its URL, and launches one Electron shell.
-- Added production renderer/Electron build, production launch, packaging entry points, unit-test, and Electron smoke-check commands.
-- Added typed IPC maps for request, response, event, and error contracts. `app:get-info` validates an empty request, returns app metadata, and returns a structured `invalid-input` response for malformed payloads.
-- Added renderer API typings and a minimal renderer bridge call without exposing Node.js, Electron main APIs, or SQLite.
-- Added repository and app-host service contracts, security-focused tests, IPC validation tests, and ADR 0001.
+- IPC registration now binds `app:get-info` to the active window's `WebContents` and returns a structured `unauthorized-sender` error for other senders.
+- `AppInfoRequest` now rejects unexpected fields at compile time while keeping the runtime request wire shape as `{}`.
+- Renderer boundary tests now discover every TypeScript source file from `tsconfig.app.json` and inspect static, dynamic, `require`, and import-equals module references with a negative fixture.
 
 ### Files Changed
 
@@ -58,13 +52,11 @@ List files grouped by purpose. Explain why each group changed; do not reproduce 
 
 | File or directory | Change type | Purpose |
 | --- | --- | --- |
-| `package.json`, `package-lock.json`, `vite.config.ts`, `electron.vite.config.ts`, `tsconfig*.json`, `vitest.config.ts` | Configuration/dependencies | Electron, Vite output separation, typecheck project boundaries, Vitest, electron-builder, and documented scripts |
-| `src/main`, `src/preload`, `src/shared` | New foundation modules | Shell window creation, security policy, IPC handlers/contracts, typed preload bridge, repository boundary, and app-host boundary |
-| `src/main.tsx`, `src/renderer-api.d.ts`, `index.html` | Renderer/security integration | Optional typed bridge call, global API typing, and renderer CSP |
-| `scripts` | New build/test tooling | Development orchestration, single-entry Electron bundling, and startup smoke check |
-| `tests` | New tests | IPC validation, response/event parsing, renderer import boundary, preload exposure, navigation policy, and secure window preferences |
-| `docs/adr/0001-electron-foundation.md`, `README.md` | Documentation | Architecture decisions and reproducible commands |
-| `docs/IMPLEMENTATION_HANDOFF.md` | Handoff | Factual WP-01 implementation and verification record |
+| `src/main/ipc/register-ipc.ts`, `src/main/main.ts` | Security fix | Authorize the active SmartSpace renderer before dispatching `app:get-info` |
+| `src/shared/ipc.ts` | Contract fix | Add the unauthorized-sender error and exact empty request type |
+| `tests/ipc.test.ts`, `tests/ipc-types.test.ts` | Regression tests | Cover sender authorization and compile-time request strictness |
+| `tests/security.test.ts`, `tests/fixtures/renderer-forbidden-import.ts` | Security test fix | Scan the configured renderer project and prove forbidden-import detection |
+| `docs/IMPLEMENTATION_HANDOFF.md` | Handoff | Record this review-fix round and verification evidence |
 
 ### Key Implementation Decisions
 
@@ -91,27 +83,27 @@ Use exact commands and report the result. For manual checks, specify the environ
 
 | Verification | Result | Evidence or notes |
 | --- | --- | --- |
-| `npm run typecheck` | Pass | `tsc -b --pretty false` passed on Windows with Node `v24.15.0`. |
-| `npm test` | Pass | Vitest `4.1.10`: 2 test files, 7 tests passed. |
-| `npm run build` | Pass | Renderer and self-contained Electron main/preload bundles built successfully. |
-| `node scripts/smoke-electron.mjs` | Pass | Production renderer loaded without Vite and preload completed `app:get-info`; Electron exited 0. |
-| `$env:SMARTSPACE_SMOKE_TEST='1'; npm run dev` | Pass | Vite started on `127.0.0.1:5173`; one Electron dev shell loaded the renderer and completed the same bridge smoke request. |
-| `npm run package:dir` | Fail | electron-builder `26.15.3` reached Windows unpacking, then the local rename from `win-unpacked.tmp` to `win-unpacked` returned `EPERM`. No packaged behavior is claimed. |
+| `npm.cmd run typecheck` | Pass | `tsc -b --pretty false` passed on Windows. |
+| `npm.cmd test` | Pass | Vitest `4.1.10`: 3 test files, 10 tests passed. |
+| `npm.cmd run build` | Pass | Renderer and self-contained Electron main/preload bundles built successfully. |
+| `node scripts/smoke-electron.mjs` | Not run | Prior and current attempts were blocked by local Electron GPU/cache permission and child-process exit behavior; no smoke success is claimed for this round. |
+| `$env:SMARTSPACE_SMOKE_TEST='1'; npm.cmd run dev` | Not run | Same local Electron process/exit blocker; no development smoke success is claimed for this round. |
+| `npm.cmd run package:dir` | Not run | Packaging is outside this review-fix scope; prior handoff records the host `EPERM` failure. |
+| `git diff --check` | Pass | No whitespace errors. |
 | Packaged Windows smoke test | Not run | Installer/packaged compatibility, native rebuild, startup registration, and clean-environment validation are WP-10 scope; the directory package attempt did not produce a verified package. |
 
 ### Problems Solved
 
 Link each solved problem to an acceptance criterion, previous Review finding, or reproducible defect when possible.
 
-- Satisfies the WP-01 development-startup, production-renderer, renderer-security, typed-validated-IPC, and documented-check acceptance criteria.
-- Prevents the initial sandboxed-preload chunk loading defect by using separate single-entry Electron builds.
-- Keeps the existing prototype UI and browser preview path intact while exposing the bridge only when Electron provides it.
+- Resolves review findings WP01-R1, WP01-R2, and WP01-R3 without changing the existing IPC wire shape or renderer API surface.
 
 ### Known Issues and Residual Risks
 
 Include flaky behavior, untested environments, compatibility uncertainty, deferred cleanup, and assumptions that the Reviewer should challenge.
 
-- `npm run package:dir` was not successful on this Windows host because electron-builder received `EPERM` while renaming its unpack staging directory; retry in a clean packaging environment is required before WP-10.
+- Electron smoke remains unverified on this host because the GPU process and cache setup reported permission failures and launched Electron children did not exit reliably; retry in a clean environment is required.
+- `npm run package:dir` was not successful on this Windows host because electron-builder received `EPERM` while renaming its unpack staging directory; retry before WP-10.
 - No packaged installer, signing, native SQLite, Win32 HWND bridge, startup registration, or arbitrary application compatibility is claimed.
 - The current shell uses the foundation default close behavior; shortcut, tray, window persistence, and managed-process lifecycle remain later work packages.
 
@@ -119,7 +111,7 @@ Include flaky behavior, untested environments, compatibility uncertainty, deferr
 
 An empty section means the implementation Agent claims the assigned package is complete. Otherwise, explain the blocker, impact, and exact next action.
 
-- None for WP-01 acceptance criteria. Packaged Windows validation is explicitly deferred to WP-10 and is listed as residual risk above.
+- None for the accepted review findings. Electron smoke and packaged Windows validation remain explicitly unverified as recorded above.
 
 ### Scope Deviations
 

@@ -24,8 +24,8 @@ async function runStartupSmokeCheck(window: BrowserWindow): Promise<void> {
 }
 
 function boot(): void {
-  registerIpcHandlers(createAppInfo);
   const window = createMainWindow();
+  registerIpcHandlers(createAppInfo, window.webContents);
   window.webContents.once('did-finish-load', () => {
     if (process.env.SMARTSPACE_SMOKE_TEST === '1') {
       void runStartupSmokeCheck(window);

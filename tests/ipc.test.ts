@@ -1,7 +1,31 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAppInfoHandler } from '../src/main/ipc/handlers';
 import { makeEmptyAppInfoRequest } from '../src/main/ipc/handlers';
+import { registerIpcHandlers } from '../src/main/ipc/register-ipc';
 import { parseAppInfoResponse, parseShellReadyEvent, type AppInfoRequest } from '../src/shared/ipc';
+import type { WebContents } from 'electron';
+
+const electronMocks = vi.hoisted(() => ({
+  ipcMain: {
+    handle: vi.fn(),
+    removeHandler: vi.fn(),
+  },
+}));
+
+vi.mock('electron', () => electronMocks);
+
+type RegisteredAppInfoHandler = (event: { sender: WebContents }, request: unknown) => Promise<unknown>;
+
+function getRegisteredAppInfoHandler(): RegisteredAppInfoHandler {
+  const handler = electronMocks.ipcMain.handle.mock.calls[0]?.[1];
+  expect(handler).toEqual(expect.any(Function));
+  return handler as RegisteredAppInfoHandler;
+}
+
+beforeEach(() => {
+  electronMocks.ipcMain.handle.mockClear();
+  electronMocks.ipcMain.removeHandler.mockClear();
+});
 
 describe('foundation IPC contract', () => {
   it('validates a request and returns the typed app information response', async () => {
@@ -28,6 +52,31 @@ describe('foundation IPC contract', () => {
         details: { field: 'request' },
       },
     });
+  });
+
+  it('rejects an invoke from a renderer other than the active SmartSpace window', async () => {
+    const activeContents = {} as WebContents;
+    const unauthorizedContents = {} as WebContents;
+    const provider = vi.fn(() => ({ name: 'SmartSpace', version: '0.1.0' }));
+
+    registerIpcHandlers(provider, activeContents);
+    const handler = getRegisteredAppInfoHandler();
+
+    await expect(handler({ sender: unauthorizedContents }, {})).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'unauthorized-sender',
+        message: 'The IPC sender is not the active SmartSpace renderer.',
+        details: { field: 'sender' },
+      },
+    });
+    expect(provider).not.toHaveBeenCalled();
+
+    await expect(handler({ sender: activeContents }, {})).resolves.toEqual({
+      ok: true,
+      value: { name: 'SmartSpace', version: '0.1.0' },
+    });
+    expect(provider).toHaveBeenCalledOnce();
   });
 
   it('rejects malformed responses and events at the bridge boundary', () => {
