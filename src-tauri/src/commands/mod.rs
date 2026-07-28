@@ -5,6 +5,7 @@ use crate::{
     storage::{DatabaseRuntimeError, StorageError},
 };
 
+pub(crate) mod applications;
 pub(crate) mod categories;
 pub(crate) mod tasks;
 

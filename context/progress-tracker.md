@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 40（任务跨分类移动交互）已提交并推送；下一模块待确认。
+- 模块 41（原生 Windows 可执行文件选择 command）已通过验证与独立 review，正在提交交付。
 
 ## Current Goal
 
@@ -67,6 +67,7 @@
 - **模块 38：Today 智能视图** 已完成实现与审查：任务导航新增 Today，计数在现有单次任务遍历中派生，筛选以当前本地日历日精确匹配 `dueDate`，包含开放与已完成任务并保持存储顺序；标题、计数、当前页、专用空状态和本地午夜刷新一致。67 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120×720、800×520、640×700 视觉验收无重叠或整体溢出。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 findings；模块提交 `d5258cd` 已推送到 `origin/main`。
 - **模块 39：任务截止日期编辑交互** 已完成实现与审查：任务行加入原生日期编辑、设置、显式清除、取消、焦点恢复、类型化错误和共享行级并发锁，通过既有 `set_task_due_date` IPC 持久化并只合并 command 返回 DTO；Today 任务因改期退出列表时焦点转移到持久视图标题。首轮 review 的临界宽度裁切和 Today 焦点丢失两个 P2 已修复，复审结果为 `APPROVE`。75 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁和 Tauri release 构建通过；640、800、996、1040、1100、1116、1120px 视觉/边界实测无横向溢出、裁切或重叠，浏览器控制台无错误；模块提交 `f2aa6c2` 已推送到 `origin/main`。
 - **模块 40：任务跨分类移动交互** 已完成实现与审查：任务行加入当前分类选择、移动、取消、焦点恢复、结构化错误和共享行级并发锁，通过既有 `move_task` IPC 持久化；App 按 command 返回 position 压缩源分类、插入并连续化目标分类，并用会话级 Promise 队列串行提交和应用不同任务的移动，保证 All 视图顺序与 SQLite 一致。成功后分类计数与视图立即同步，移出当前分类时焦点落到持久标题，keyed client session 隔离旧结果。两轮 review 发现的连续移动旧 position 与不同任务并发逆序两个 P1 均已修复，`gpt-5.6-sol medium` 最终复审结果为 `APPROVE`，无 findings。85 条前端测试、108 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120×720、800×520、640×700 的长任务、超长无断点分类名、编辑与成功状态视觉验收无溢出、裁切或重叠，浏览器控制台无错误；模块提交 `f85562d` 已推送到 `origin/main`。
+- **模块 41：原生 Windows 可执行文件选择 command** 已完成实现与审查：引入与 Tauri 2.11.5 共用运行时的官方 `tauri-plugin-dialog` 2.7.2，初始化 plugin 并注册窄 `pick_application_executable` command；异步 command 只打开原生单文件 `.exe` 选择器，取消返回 `null`，返回前复验绝对路径、无损 Unicode、大小写不敏感扩展名、存在性和普通文件类型，失败统一为结构化 `invalid_input`，不访问数据库或进程 API。4 条聚焦测试覆盖全部纯边界分支；85 条前端测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；真实系统对话框交互留待 React 添加应用入口端到端验收，未来启动边界必须再次验证文件并把 TOCTOU 失败映射为可恢复状态。
 
 ## In Progress
 
@@ -74,7 +75,8 @@
 
 ## Next Up
 
-1. Upcoming 语义获得用户确认后再登记对应智能视图模块。
+1. 模块 42：前端可执行文件选择 IPC 客户端。
+2. Upcoming 与应用配置重复规则获得用户确认后，再登记对应视图或持久化模块。
 
 ## Open Questions
 
