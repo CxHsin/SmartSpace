@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 46（分类删除交互）实施中。
+- 模块 48 已完成，下一步进入应用配置仓库模块。
 
 ## Current Goal
 
@@ -74,6 +74,7 @@
 - **模块 45：分类手动排序交互** 已完成实现与审查：分类导航新增 Sort/Done 显式排序模式和首尾边界禁用的上移/下移控制，每次通过既有 `reorder_categories` IPC 提交包含收件箱的完整 ID 序列，不做乐观更新；以 command 返回的完整 `CategoryDto[]` 同步导航、当前分类和任务分类选择器，并按返回 position 重建 All 视图任务存储顺序。分类创建、重命名和排序共享同步写锁；成功后提供 live feedback 并把焦点保留在同方向或边界反方向控制上，错误保留原顺序，keyed client session 隔离旧请求。62 条 App 聚焦测试、107 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 视觉验收无重叠、裁切或页面溢出，浏览器日志无 warning/error。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `5d362ed` 已推送到 `origin/main`。
 - **模块 46：分类删除交互** 已完成实现与审查：用户分类提供内联确认、任务迁移说明、Escape/Cancel、类型化错误、重复提交保护及确定性焦点恢复，收件箱不可删除；删除与分类创建、重命名、排序共享 UI 写锁。Rust 删除事务在同一数据库锁内迁移任务、压缩分类并返回权威分类/任务快照，快照读取失败会回滚；前端直接应用快照，并以会话级删除屏障协调任务创建、状态、重命名、日期和移动写入，拒绝引用缺失分类的迟到 DTO。成功反馈、确认关闭和邻居焦点均按 command 返回 ID 派生，删除当前分类时切换收件箱并聚焦标题，keyed client session 隔离旧结果。三轮 `gpt-5.6-sol medium` review 发现的任务写交错 P1、迁移时间戳 P2、返回 ID 状态 P2 和请求行焦点竞争 P2 均已修复，最终结果为 `APPROVE`，无 P1/P2。72 条 App 聚焦测试、117 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁和 Tauri release 构建通过；1120x720、800x520、640x700 视觉验收覆盖长分类名、确认、滚动、反馈与焦点，无重叠、裁切或页面溢出，浏览器日志无 warning/error；模块提交 `76a1181` 已推送到 `origin/main`。
 - **模块 47：应用配置表迁移** 已完成实现与审查：schema v2 新增 `applications` 表，包含稳定 ID、显示名称、Windows 可执行文件路径、可选图标缓存键和排序位置索引；名称、路径和非空图标键拒绝空白，位置通过 `typeof(position) = 'integer'` 同时拒绝文本、小数与负数。全新数据库直接建立 v2，v1 文件数据库升级前后的分类与任务完整有序行快照逐列一致，既有失败迁移回滚与目录连续性测试推进到未来版本 3。首轮 `gpt-5.6-sol medium` review 发现的无损迁移断言不足 P2 和 SQLite 整数亲和性 P2 均已修复，复审结果为 `APPROVE`，无 P1/P2。117 条前端测试、114 条 Rust 测试、Prettier、ESLint、TypeScript、Vite build、Rust fmt、Clippy、cargo check、git diff check 与 Tauri release build 全部通过；本模块无 UI 变更，不需要视觉验收；模块提交 `4b2691a` 已推送到 `origin/main`。
+- **模块 48：应用配置领域模型** 已完成实现与审查：新增 `ApplicationId` 及 `ApplicationConfig`、`ApplicationDisplayName`、`ApplicationExecutablePath`、`ApplicationIconCacheKey`、`ApplicationPosition`。值对象通过自校验反序列化拒绝空白名称、空白/NUL/相对/非 `.exe` 路径、空白图标键和负数位置；路径保留用户选择的原始 Unicode 文本且不访问文件系统，使暂时不可用的持久配置仍可加载并由启动边界恢复处理。合法配置以 camelCase JSON 无损往返。首轮 `gpt-5.6-sol medium` review 发现的 Current Phase 文档 P2 已修正，复审结果为 `APPROVE`，无 P1/P2。19 条领域聚焦测试、117 条前端测试、120 条 Rust 测试、前端/Rust 全量门禁与 Tauri release 构建通过；本模块无 UI 变更，不需要视觉验收。
 
 ## In Progress
 
@@ -81,7 +82,7 @@
 
 ## Next Up
 
-1. 登记并实现应用配置领域模型模块。
+1. 登记并实现应用配置仓库模块。
 
 ## Open Questions
 

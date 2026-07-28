@@ -51,13 +51,38 @@ impl Default for CategoryId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ApplicationId(Uuid);
+
+impl ApplicationId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub const fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for ApplicationId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CategoryId, TaskId};
+    use super::{ApplicationId, CategoryId, TaskId};
 
     #[test]
     fn generated_ids_are_not_the_reserved_inbox_id() {
         assert_ne!(CategoryId::new(), CategoryId::INBOX);
         assert_ne!(TaskId::new().as_uuid(), CategoryId::INBOX.as_uuid());
+        assert_ne!(ApplicationId::new().as_uuid(), CategoryId::INBOX.as_uuid());
     }
 }
