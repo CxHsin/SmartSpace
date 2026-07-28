@@ -15,6 +15,7 @@ enum CommandErrorCode {
     InvalidInput,
     CategoryNotFound,
     TaskNotFound,
+    ApplicationNotFound,
     DuplicateCategoryName,
     CannotDeleteInbox,
     DatabaseUnavailable,
@@ -54,6 +55,9 @@ impl From<DatabaseRuntimeError> for CommandError {
             DatabaseRuntimeError::Storage(StorageError::TaskNotFound { .. }) => {
                 CommandErrorCode::TaskNotFound
             }
+            DatabaseRuntimeError::Storage(StorageError::ApplicationNotFound { .. }) => {
+                CommandErrorCode::ApplicationNotFound
+            }
             DatabaseRuntimeError::Storage(StorageError::DuplicateCategoryName) => {
                 CommandErrorCode::DuplicateCategoryName
             }
@@ -79,6 +83,7 @@ impl CommandError {
 #[cfg(test)]
 mod tests {
     use super::{CommandError, CommandErrorCode};
+    use crate::domain::ApplicationId;
     use crate::storage::{DatabaseRuntimeError, StorageError};
 
     #[test]
@@ -91,5 +96,20 @@ mod tests {
 
         assert_eq!(error.code, CommandErrorCode::DataCorrupt);
         assert_eq!(serde_json::to_value(error).unwrap()["code"], "data_corrupt");
+    }
+
+    #[test]
+    fn missing_application_maps_to_the_shared_application_not_found_code() {
+        let error = CommandError::from(DatabaseRuntimeError::Storage(
+            StorageError::ApplicationNotFound {
+                id: ApplicationId::new(),
+            },
+        ));
+
+        assert_eq!(error.code, CommandErrorCode::ApplicationNotFound);
+        assert_eq!(
+            serde_json::to_value(error).unwrap()["code"],
+            "application_not_found"
+        );
     }
 }

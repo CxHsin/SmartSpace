@@ -3,7 +3,7 @@ use std::{path::Path, time::Duration};
 use rusqlite::{Connection, TransactionBehavior};
 use thiserror::Error;
 
-use crate::domain::{CategoryId, DomainError};
+use crate::domain::{ApplicationId, CategoryId, DomainError};
 
 mod applications;
 mod categories;
@@ -72,6 +72,8 @@ pub enum StorageError {
     CorruptTaskStore { reason: &'static str },
     #[error("application storage invariant violated: {reason}")]
     CorruptApplicationStore { reason: &'static str },
+    #[error("application {id:?} was not found")]
+    ApplicationNotFound { id: ApplicationId },
 }
 
 #[derive(Debug, Clone, Copy)]

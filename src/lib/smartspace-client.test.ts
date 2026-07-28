@@ -130,6 +130,25 @@ describe("SmartSpaceClient read commands", () => {
     });
   });
 
+  it("preserves the shared application not found error code", async () => {
+    const client = createSmartSpaceClient(async () => {
+      throw {
+        code: "application_not_found",
+        message: "application was not found",
+      };
+    });
+
+    const error = await client
+      .listCategories()
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(SmartSpaceCommandError);
+    expect(error).toMatchObject({
+      code: "application_not_found",
+      message: "application was not found",
+    });
+  });
+
   it("normalizes unknown rejection shapes to an unknown command error", async () => {
     const client = createSmartSpaceClient(async () => {
       throw { code: "future_error", message: "not yet supported" };

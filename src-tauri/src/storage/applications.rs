@@ -46,6 +46,33 @@ impl Database {
 
         Ok(application)
     }
+
+    pub fn delete_application(
+        &mut self,
+        id: ApplicationId,
+    ) -> Result<Vec<ApplicationConfig>, StorageError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = list_applications(&transaction)?;
+        let application = existing
+            .iter()
+            .find(|application| application.id() == id)
+            .ok_or(StorageError::ApplicationNotFound { id })?;
+
+        transaction.execute(
+            "DELETE FROM applications WHERE id = ?1",
+            [id.as_uuid().to_string()],
+        )?;
+        transaction.execute(
+            "UPDATE applications SET position = position - 1 WHERE position > ?1",
+            [application.position().get()],
+        )?;
+        let applications = list_applications(&transaction)?;
+        transaction.commit()?;
+
+        Ok(applications)
+    }
 }
 
 fn list_applications(connection: &Connection) -> Result<Vec<ApplicationConfig>, StorageError> {
@@ -356,6 +383,97 @@ mod tests {
     }
 
     #[test]
+    fn deleting_middle_head_and_tail_compacts_and_persists_positions() {
+        let path = temporary_database_path();
+        let (first, middle, last) = {
+            let mut database = Database::open(&path).unwrap();
+            (
+                database
+                    .create_application("First", r"C:\Tools\First.exe", None)
+                    .unwrap(),
+                database
+                    .create_application("Middle", r"C:\Tools\Middle.exe", None)
+                    .unwrap(),
+                database
+                    .create_application("Last", r"C:\Tools\Last.exe", None)
+                    .unwrap(),
+            )
+        };
+
+        let after_middle = {
+            let mut database = Database::open(&path).unwrap();
+            database.delete_application(middle.id()).unwrap()
+        };
+        assert_application_ids_and_positions(&after_middle, &[first.id(), last.id()]);
+        assert_eq!(
+            Database::open(&path).unwrap().list_applications().unwrap(),
+            after_middle
+        );
+
+        let after_head = {
+            let mut database = Database::open(&path).unwrap();
+            database.delete_application(first.id()).unwrap()
+        };
+        assert_application_ids_and_positions(&after_head, &[last.id()]);
+        assert_eq!(
+            Database::open(&path).unwrap().list_applications().unwrap(),
+            after_head
+        );
+
+        let after_tail = {
+            let mut database = Database::open(&path).unwrap();
+            database.delete_application(last.id()).unwrap()
+        };
+        assert!(after_tail.is_empty());
+        assert!(Database::open(&path)
+            .unwrap()
+            .list_applications()
+            .unwrap()
+            .is_empty());
+        remove_database_files(&path);
+    }
+
+    #[test]
+    fn deleting_unknown_application_does_not_write() {
+        let mut database = Database::open_in_memory().unwrap();
+        let existing = database
+            .create_application("Existing", r"C:\Tools\Existing.exe", None)
+            .unwrap();
+        let before = stored_application_rows(&database.connection);
+        let missing_id = crate::domain::ApplicationId::new();
+
+        assert!(matches!(
+            database.delete_application(missing_id),
+            Err(StorageError::ApplicationNotFound { id }) if id == missing_id
+        ));
+        assert_eq!(stored_application_rows(&database.connection), before);
+        assert_eq!(database.list_applications().unwrap(), vec![existing]);
+    }
+
+    #[test]
+    fn corrupt_application_store_rejects_deletion_without_writing() {
+        let mut database = Database::open_in_memory().unwrap();
+        insert_application(
+            &database.connection,
+            "40000000-0000-0000-0000-000000000001",
+            "Existing",
+            r"C:\Tools\Existing.exe",
+            None,
+            1,
+        );
+        let before = stored_application_rows(&database.connection);
+        let id = crate::domain::ApplicationId::from_uuid(
+            Uuid::parse_str("40000000-0000-0000-0000-000000000001").unwrap(),
+        );
+
+        assert!(matches!(
+            database.delete_application(id),
+            Err(StorageError::CorruptApplicationStore { .. })
+        ));
+        assert_eq!(stored_application_rows(&database.connection), before);
+    }
+
+    #[test]
     fn invalid_application_ids_are_not_hidden() {
         let database = Database::open_in_memory().unwrap();
         insert_application(
@@ -490,6 +608,26 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap()
+    }
+
+    fn assert_application_ids_and_positions(
+        applications: &[crate::domain::ApplicationConfig],
+        expected_ids: &[crate::domain::ApplicationId],
+    ) {
+        assert_eq!(
+            applications
+                .iter()
+                .map(crate::domain::ApplicationConfig::id)
+                .collect::<Vec<_>>(),
+            expected_ids
+        );
+        assert_eq!(
+            applications
+                .iter()
+                .map(|application| application.position().get())
+                .collect::<Vec<_>>(),
+            (0..applications.len() as i64).collect::<Vec<_>>()
+        );
     }
 
     fn temporary_database_path() -> std::path::PathBuf {

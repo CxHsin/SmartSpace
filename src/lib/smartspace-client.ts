@@ -83,6 +83,7 @@ export type CommandErrorCode =
   | "invalid_input"
   | "category_not_found"
   | "task_not_found"
+  | "application_not_found"
   | "duplicate_category_name"
   | "cannot_delete_inbox"
   | "database_unavailable"
@@ -127,6 +128,7 @@ const commandErrorCodes = new Set<CommandErrorCode>([
   "invalid_input",
   "category_not_found",
   "task_not_found",
+  "application_not_found",
   "duplicate_category_name",
   "cannot_delete_inbox",
   "database_unavailable",
