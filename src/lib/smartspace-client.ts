@@ -13,6 +13,8 @@ export interface CategoryDto {
 export interface DeleteCategoryResultDto {
   readonly categoryId: string;
   readonly migratedTaskCount: number;
+  readonly categories: readonly CategoryDto[];
+  readonly tasks: readonly TaskDto[];
 }
 
 export interface TaskDto {

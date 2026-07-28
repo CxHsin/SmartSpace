@@ -6,7 +6,14 @@ use unicase::UniCase;
 use uuid::Uuid;
 
 use super::{Database, StorageError};
-use crate::domain::{Category, CategoryId, CategoryKind, CategoryName};
+use crate::domain::{Category, CategoryId, CategoryKind, CategoryName, Task};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct CategoryDeletionSnapshot {
+    pub migrated_task_count: usize,
+    pub categories: Vec<Category>,
+    pub tasks: Vec<Task>,
+}
 
 impl Database {
     pub fn list_categories(&self) -> Result<Vec<Category>, StorageError> {
@@ -109,7 +116,7 @@ impl Database {
         &mut self,
         id: CategoryId,
         now: DateTime<Utc>,
-    ) -> Result<usize, StorageError> {
+    ) -> Result<CategoryDeletionSnapshot, StorageError> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -122,7 +129,7 @@ impl Database {
         category.ensure_deletable()?;
 
         let all_tasks = super::tasks::list_tasks_with_categories(&transaction, &categories)?;
-        let tasks = all_tasks
+        let tasks_to_migrate = all_tasks
             .into_iter()
             .filter(|task| task.category_id() == id)
             .collect::<Vec<_>>();
@@ -132,7 +139,7 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        for (offset, task) in tasks.iter().enumerate() {
+        for (offset, task) in tasks_to_migrate.iter().enumerate() {
             let updated_at = task
                 .updated_at()
                 .max(now)
@@ -160,9 +167,15 @@ impl Database {
             "UPDATE categories SET position = position - 1 WHERE position > ?1",
             [category.position()],
         )?;
+        let categories = list_categories(&transaction)?;
+        let tasks = super::tasks::list_tasks_with_categories(&transaction, &categories)?;
         transaction.commit()?;
 
-        Ok(tasks.len())
+        Ok(CategoryDeletionSnapshot {
+            migrated_task_count: tasks_to_migrate.len(),
+            categories,
+            tasks,
+        })
     }
 }
 
@@ -462,7 +475,10 @@ mod tests {
 
         let now =
             Utc.with_ymd_and_hms(2026, 7, 27, 12, 0, 0).unwrap() + Duration::milliseconds(500);
-        assert_eq!(database.delete_category(work.id(), now).unwrap(), 2);
+        let snapshot = database.delete_category(work.id(), now).unwrap();
+        assert_eq!(snapshot.migrated_task_count, 2);
+        assert_eq!(snapshot.categories.len(), 2);
+        assert_eq!(snapshot.tasks.len(), 3);
 
         assert_eq!(database.category(work.id()).unwrap(), None);
         assert_eq!(

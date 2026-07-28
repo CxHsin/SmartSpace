@@ -11,6 +11,8 @@ import {
   type CategoryDto,
   type CreateCategoryInput,
   type CreateTaskInput,
+  type DeleteCategoryInput,
+  type DeleteCategoryResultDto,
   type MoveTaskInput,
   type RenameCategoryInput,
   type RenameTaskInput,
@@ -61,6 +63,12 @@ function insertTaskInStorageOrder(
   data: TaskWorkspaceData,
   createdTask: TaskDto,
 ): TaskWorkspaceData {
+  if (
+    !data.categories.some((category) => category.id === createdTask.categoryId)
+  ) {
+    return data;
+  }
+
   return {
     ...data,
     tasks: sortTasksInStorageOrder(data.categories, [
@@ -92,7 +100,10 @@ function moveTaskInStorageOrder(
   updatedTask: TaskDto,
 ): TaskWorkspaceData {
   const existingTask = data.tasks.find((task) => task.id === taskId);
-  if (existingTask === undefined) {
+  if (
+    existingTask === undefined ||
+    !data.categories.some((category) => category.id === updatedTask.categoryId)
+  ) {
     return data;
   }
 
@@ -152,6 +163,12 @@ function replaceTask(
   taskId: string,
   updatedTask: TaskDto,
 ): TaskWorkspaceData {
+  if (
+    !data.categories.some((category) => category.id === updatedTask.categoryId)
+  ) {
+    return data;
+  }
+
   return {
     ...data,
     tasks: data.tasks.map((task) => (task.id === taskId ? updatedTask : task)),
@@ -179,6 +196,15 @@ function replaceCategoriesInStorageOrder(
     ...data,
     categories,
     tasks: sortTasksInStorageOrder(categories, data.tasks),
+  };
+}
+
+function replaceWorkspaceAfterCategoryDeletion(
+  result: DeleteCategoryResultDto,
+): TaskWorkspaceData {
+  return {
+    categories: result.categories,
+    tasks: result.tasks,
   };
 }
 
@@ -269,6 +295,7 @@ export function WorkspaceBody({
   onRetry,
   onCreateCategory,
   onCreateTask,
+  onDeleteCategory,
   onMoveTask,
   onRenameCategory,
   onRenameTask,
@@ -283,6 +310,9 @@ export function WorkspaceBody({
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onDeleteCategory?: (
+    input: DeleteCategoryInput,
+  ) => Promise<DeleteCategoryResultDto>;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
   readonly onRenameCategory?: (
     input: RenameCategoryInput,
@@ -308,6 +338,7 @@ export function WorkspaceBody({
           data={workspace.data}
           onCreateCategory={onCreateCategory}
           onCreateTask={onCreateTask}
+          onDeleteCategory={onDeleteCategory}
           onMoveTask={onMoveTask}
           onRenameCategory={onRenameCategory}
           onRenameTask={onRenameTask}
@@ -327,8 +358,56 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     status: "loading",
   });
   const loadingRegionRef = useRef<HTMLElement>(null);
+  const categoryDeletionBarrierRef = useRef<Promise<void> | undefined>(
+    undefined,
+  );
   const moveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingWorkspaceMutationsRef = useRef(new Set<Promise<unknown>>());
   const shouldFocusLoading = useRef(false);
+
+  const trackWorkspaceMutation = useCallback(
+    <Result,>(result: Promise<Result>) => {
+      pendingWorkspaceMutationsRef.current.add(result);
+      void result.then(
+        () => pendingWorkspaceMutationsRef.current.delete(result),
+        () => pendingWorkspaceMutationsRef.current.delete(result),
+      );
+      return result;
+    },
+    [],
+  );
+
+  const runWorkspaceMutation = useCallback(
+    <Result,>(operation: () => Promise<Result>) => {
+      const barrier = categoryDeletionBarrierRef.current;
+      return trackWorkspaceMutation(
+        barrier === undefined ? operation() : barrier.then(operation),
+      );
+    },
+    [trackWorkspaceMutation],
+  );
+
+  const runCategoryDeletion = useCallback(
+    <Result,>(operation: () => Promise<Result>) => {
+      const pendingMutations = [...pendingWorkspaceMutationsRef.current];
+      const result =
+        pendingMutations.length === 0
+          ? operation()
+          : Promise.allSettled(pendingMutations).then(operation);
+      const barrier = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      categoryDeletionBarrierRef.current = barrier;
+      void barrier.then(() => {
+        if (categoryDeletionBarrierRef.current === barrier) {
+          categoryDeletionBarrierRef.current = undefined;
+        }
+      });
+      return trackWorkspaceMutation(result);
+    },
+    [trackWorkspaceMutation],
+  );
 
   useEffect(() => {
     let active = true;
@@ -362,149 +441,177 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
   }, [workspace.status]);
 
   const createTask = useCallback(
-    async (input: CreateTaskInput) => {
-      const createdTask = await client.createTask(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: insertTaskInStorageOrder(current.data, createdTask),
-            }
-          : current,
-      );
-      return createdTask;
-    },
-    [client],
-  );
-
-  const createCategory = useCallback(
-    async (input: CreateCategoryInput) => {
-      const createdCategory = await client.createCategory(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: insertCategoryInStorageOrder(current.data, createdCategory),
-            }
-          : current,
-      );
-      return createdCategory;
-    },
-    [client],
-  );
-
-  const renameCategory = useCallback(
-    async (input: RenameCategoryInput) => {
-      const updatedCategory = await client.renameCategory(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: replaceCategory(
-                current.data,
-                input.categoryId,
-                updatedCategory,
-              ),
-            }
-          : current,
-      );
-      return updatedCategory;
-    },
-    [client],
-  );
-
-  const reorderCategories = useCallback(
-    async (input: ReorderCategoriesInput) => {
-      const reorderedCategories = await client.reorderCategories(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: replaceCategoriesInStorageOrder(
-                current.data,
-                reorderedCategories,
-              ),
-            }
-          : current,
-      );
-      return reorderedCategories;
-    },
-    [client],
-  );
-
-  const setTaskStatus = useCallback(
-    async (input: SetTaskStatusInput) => {
-      const updatedTask = await client.setTaskStatus(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: replaceTask(current.data, input.taskId, updatedTask),
-            }
-          : current,
-      );
-      return updatedTask;
-    },
-    [client],
-  );
-
-  const renameTask = useCallback(
-    async (input: RenameTaskInput) => {
-      const updatedTask = await client.renameTask(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: replaceTask(current.data, input.taskId, updatedTask),
-            }
-          : current,
-      );
-      return updatedTask;
-    },
-    [client],
-  );
-
-  const setTaskDueDate = useCallback(
-    async (input: SetTaskDueDateInput) => {
-      const updatedTask = await client.setTaskDueDate(input);
-      setWorkspace((current) =>
-        current.status === "ready"
-          ? {
-              status: "ready",
-              data: replaceTask(current.data, input.taskId, updatedTask),
-            }
-          : current,
-      );
-      return updatedTask;
-    },
-    [client],
-  );
-
-  const moveTask = useCallback(
-    (input: MoveTaskInput) => {
-      const operation = moveQueueRef.current.then(async () => {
-        const updatedTask = await client.moveTask(input);
+    (input: CreateTaskInput) =>
+      runWorkspaceMutation(async () => {
+        const createdTask = await client.createTask(input);
         setWorkspace((current) =>
           current.status === "ready"
             ? {
                 status: "ready",
-                data: moveTaskInStorageOrder(
+                data: insertTaskInStorageOrder(current.data, createdTask),
+              }
+            : current,
+        );
+        return createdTask;
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const createCategory = useCallback(
+    (input: CreateCategoryInput) =>
+      runWorkspaceMutation(async () => {
+        const createdCategory = await client.createCategory(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: insertCategoryInStorageOrder(
                   current.data,
-                  input.taskId,
-                  updatedTask,
+                  createdCategory,
                 ),
               }
             : current,
         );
+        return createdCategory;
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const renameCategory = useCallback(
+    (input: RenameCategoryInput) =>
+      runWorkspaceMutation(async () => {
+        const updatedCategory = await client.renameCategory(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: replaceCategory(
+                  current.data,
+                  input.categoryId,
+                  updatedCategory,
+                ),
+              }
+            : current,
+        );
+        return updatedCategory;
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const reorderCategories = useCallback(
+    (input: ReorderCategoriesInput) =>
+      runWorkspaceMutation(async () => {
+        const reorderedCategories = await client.reorderCategories(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: replaceCategoriesInStorageOrder(
+                  current.data,
+                  reorderedCategories,
+                ),
+              }
+            : current,
+        );
+        return reorderedCategories;
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const deleteCategory = useCallback(
+    (input: DeleteCategoryInput) =>
+      runCategoryDeletion(async () => {
+        const result = await client.deleteCategory(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: replaceWorkspaceAfterCategoryDeletion(result),
+              }
+            : current,
+        );
+        return result;
+      }),
+    [client, runCategoryDeletion],
+  );
+
+  const setTaskStatus = useCallback(
+    (input: SetTaskStatusInput) =>
+      runWorkspaceMutation(async () => {
+        const updatedTask = await client.setTaskStatus(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: replaceTask(current.data, input.taskId, updatedTask),
+              }
+            : current,
+        );
         return updatedTask;
-      });
-      moveQueueRef.current = operation.then(
-        () => undefined,
-        () => undefined,
-      );
-      return operation;
-    },
-    [client],
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const renameTask = useCallback(
+    (input: RenameTaskInput) =>
+      runWorkspaceMutation(async () => {
+        const updatedTask = await client.renameTask(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: replaceTask(current.data, input.taskId, updatedTask),
+              }
+            : current,
+        );
+        return updatedTask;
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const setTaskDueDate = useCallback(
+    (input: SetTaskDueDateInput) =>
+      runWorkspaceMutation(async () => {
+        const updatedTask = await client.setTaskDueDate(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: replaceTask(current.data, input.taskId, updatedTask),
+              }
+            : current,
+        );
+        return updatedTask;
+      }),
+    [client, runWorkspaceMutation],
+  );
+
+  const moveTask = useCallback(
+    (input: MoveTaskInput) =>
+      runWorkspaceMutation(() => {
+        const operation = moveQueueRef.current.then(async () => {
+          const updatedTask = await client.moveTask(input);
+          setWorkspace((current) =>
+            current.status === "ready"
+              ? {
+                  status: "ready",
+                  data: moveTaskInStorageOrder(
+                    current.data,
+                    input.taskId,
+                    updatedTask,
+                  ),
+                }
+              : current,
+          );
+          return updatedTask;
+        });
+        moveQueueRef.current = operation.then(
+          () => undefined,
+          () => undefined,
+        );
+        return operation;
+      }),
+    [client, runWorkspaceMutation],
   );
 
   return (
@@ -526,6 +633,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
         loadingRegionRef={loadingRegionRef}
         onCreateCategory={createCategory}
         onCreateTask={createTask}
+        onDeleteCategory={deleteCategory}
         onMoveTask={moveTask}
         onRenameCategory={renameCategory}
         onRenameTask={renameTask}

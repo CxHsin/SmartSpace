@@ -9,6 +9,7 @@ mod categories;
 mod runtime;
 mod tasks;
 
+pub use categories::CategoryDeletionSnapshot;
 pub use runtime::{DatabaseRuntimeError, DatabaseState, DATABASE_FILE_NAME};
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;

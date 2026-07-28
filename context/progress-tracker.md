@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 45（分类手动排序交互）已提交并推送；下一模块待登记。
+- 模块 46（分类删除交互）实施中。
 
 ## Current Goal
 
@@ -72,14 +72,15 @@
 - **模块 43：任务标题重命名交互** 已完成实现与审查：任务行新增可访问的标题 trigger 与内联编辑器，通过既有 `rename_task` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、保存后焦点恢复、结构化错误保留草稿，以及标题/状态/日期/分类共享同步行锁。App 使用函数式状态替换并依靠 keyed client session 隔离旧请求。50 条 App 聚焦测试、95 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的长标题、无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `defbeaa` 已推送到 `origin/main`。
 - **模块 44：分类重命名交互** 已完成实现与审查：分类导航新增独立重命名 trigger 与内联编辑器，通过既有 `rename_category` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、同步重复提交锁、保存后焦点恢复和四类错误保留草稿。名称更新会同步当前分类标题、导航、任务分类展示和新任务分类选择器，keyed client session 隔离旧请求。57 条 App 聚焦测试、102 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的超长无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `a3e4a48` 已推送到 `origin/main`。
 - **模块 45：分类手动排序交互** 已完成实现与审查：分类导航新增 Sort/Done 显式排序模式和首尾边界禁用的上移/下移控制，每次通过既有 `reorder_categories` IPC 提交包含收件箱的完整 ID 序列，不做乐观更新；以 command 返回的完整 `CategoryDto[]` 同步导航、当前分类和任务分类选择器，并按返回 position 重建 All 视图任务存储顺序。分类创建、重命名和排序共享同步写锁；成功后提供 live feedback 并把焦点保留在同方向或边界反方向控制上，错误保留原顺序，keyed client session 隔离旧请求。62 条 App 聚焦测试、107 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 视觉验收无重叠、裁切或页面溢出，浏览器日志无 warning/error。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `5d362ed` 已推送到 `origin/main`。
+- **模块 46：分类删除交互** 已完成实现与审查：用户分类提供内联确认、任务迁移说明、Escape/Cancel、类型化错误、重复提交保护及确定性焦点恢复，收件箱不可删除；删除与分类创建、重命名、排序共享 UI 写锁。Rust 删除事务在同一数据库锁内迁移任务、压缩分类并返回权威分类/任务快照，快照读取失败会回滚；前端直接应用快照，并以会话级删除屏障协调任务创建、状态、重命名、日期和移动写入，拒绝引用缺失分类的迟到 DTO。成功反馈、确认关闭和邻居焦点均按 command 返回 ID 派生，删除当前分类时切换收件箱并聚焦标题，keyed client session 隔离旧结果。三轮 `gpt-5.6-sol medium` review 发现的任务写交错 P1、迁移时间戳 P2、返回 ID 状态 P2 和请求行焦点竞争 P2 均已修复，最终结果为 `APPROVE`，无 P1/P2。72 条 App 聚焦测试、117 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁和 Tauri release 构建通过；1120x720、800x520、640x700 视觉验收覆盖长分类名、确认、滚动、反馈与焦点，无重叠、裁切或页面溢出，浏览器日志无 warning/error。
 
 ## In Progress
 
-- None.
+- 无。
 
 ## Next Up
 
-1. 登记并实现下一个不依赖开放产品问题的最小模块。
+1. 登记并实现应用配置持久化方向的下一个最小模块。
 
 ## Open Questions
 

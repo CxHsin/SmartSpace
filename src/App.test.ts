@@ -15,6 +15,7 @@ import { TaskWorkspace } from "./features/tasks/TaskWorkspace";
 import { SmartSpaceCommandError } from "./lib/smartspace-client";
 import type {
   CategoryDto,
+  DeleteCategoryResultDto,
   SmartSpaceClient,
   TaskDto,
 } from "./lib/smartspace-client";
@@ -119,10 +120,12 @@ function createClient(
   renameTask: SmartSpaceClient["renameTask"] = unexpectedRenameTask,
   renameCategory: SmartSpaceClient["renameCategory"] = unexpectedRenameCategory,
   reorderCategories: SmartSpaceClient["reorderCategories"] = unexpectedReorderCategories,
+  deleteCategory: SmartSpaceClient["deleteCategory"] = unexpectedDeleteCategory,
+  categoryResult: readonly CategoryDto[] = categories,
 ): SmartSpaceClient {
   return {
     pickApplicationExecutable: unexpectedPickApplicationExecutable,
-    listCategories: vi.fn(async () => categories),
+    listCategories: vi.fn(async () => categoryResult),
     listTasks: vi.fn(async () => taskResult),
     createTask,
     setTaskStatus,
@@ -134,7 +137,7 @@ function createClient(
     createCategory,
     renameCategory,
     reorderCategories,
-    deleteCategory: unexpectedDeleteCategory,
+    deleteCategory,
   };
 }
 
@@ -1617,6 +1620,617 @@ describe("App task workspace lifecycle", () => {
         (option) => option.text,
       ),
     ).toEqual(["Inbox", "Work", "Personal"]);
+  });
+
+  it("confirms category deletion and restores focus after cancel or Escape", async () => {
+    const deleteCategory = vi.fn<SmartSpaceClient["deleteCategory"]>();
+    render(
+      createElement(App, {
+        client: createClient(
+          [],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          deleteCategory,
+        ),
+      }),
+    );
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Delete category: Inbox" }),
+    ).toBeNull();
+
+    const workDeleteTrigger = screen.getByRole("button", {
+      name: "Delete category: Work",
+    });
+    fireEvent.click(workDeleteTrigger);
+    const workDeleteForm = screen.getByRole("form", {
+      name: "Delete category: Work",
+    });
+    expect(workDeleteForm.textContent).toContain(
+      "Delete Work? 0 tasks will move to Inbox.",
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel" }),
+    );
+    fireEvent.keyDown(workDeleteForm, { key: "Escape" });
+    expect(screen.queryByText("Delete Work?")).toBeNull();
+    expect(document.activeElement).toBe(workDeleteTrigger);
+
+    const personalDeleteTrigger = screen.getByRole("button", {
+      name: "Delete category: Personal",
+    });
+    fireEvent.click(personalDeleteTrigger);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(personalDeleteTrigger);
+    expect(deleteCategory).not.toHaveBeenCalled();
+  });
+
+  it("deletes the current category and rebuilds migrated task storage order", async () => {
+    const pendingDelete = createDeferred<DeleteCategoryResultDto>();
+    const deleteCategory = vi.fn(() => pendingDelete.promise);
+    const inboxTask = createTask(
+      "10000000-0000-0000-0000-000000000058",
+      "Inbox before migration",
+      inboxId,
+    );
+    const firstWorkTask = createTask(
+      "10000000-0000-0000-0000-000000000059",
+      "First migrated task",
+      workId,
+      0,
+    );
+    const secondWorkTask = createTask(
+      "10000000-0000-0000-0000-000000000060",
+      "Second migrated task",
+      workId,
+      1,
+    );
+    const personalTask = createTask(
+      "10000000-0000-0000-0000-000000000061",
+      "Personal after migration",
+      personalId,
+    );
+    render(
+      createElement(App, {
+        client: createClient(
+          [inboxTask, firstWorkTask, secondWorkTask, personalTask],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          deleteCategory,
+        ),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Work 2" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Work" }),
+    );
+    const deleteButton = screen.getByRole("button", { name: /^Delete$/ });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    expect(deleteCategory).toHaveBeenCalledTimes(1);
+    expect(deleteCategory).toHaveBeenCalledWith({ categoryId: workId });
+    expect(
+      (screen.getByRole("button", { name: "Sort" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add category",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Rename category: Personal",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Delete category: Personal",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      pendingDelete.resolve({
+        categoryId: workId,
+        migratedTaskCount: 2,
+        categories: [categories[0], { ...categories[2], position: 1 }],
+        tasks: [
+          inboxTask,
+          {
+            ...firstWorkTask,
+            categoryId: inboxId,
+            position: 1,
+            updatedAt: "2026-07-28T09:00:02.000000003Z",
+          },
+          {
+            ...secondWorkTask,
+            categoryId: inboxId,
+            position: 2,
+            updatedAt: "2026-07-28T09:00:02.000000003Z",
+          },
+          personalTask,
+        ],
+      });
+      await pendingDelete.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Work deleted. 2 tasks moved to Inbox.",
+    );
+    expect(screen.queryByRole("button", { name: "Work 2" })).toBeNull();
+    const inboxButton = screen.getByRole("button", { name: "Inbox 3" });
+    expect(inboxButton.getAttribute("aria-current")).toBe("page");
+    const inboxHeading = screen.getByRole("heading", { name: "Inbox" });
+    expect(document.activeElement).toBe(inboxHeading);
+    expect(
+      Array.from(
+        (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+        (option) => option.text,
+      ),
+    ).toEqual(["Inbox", "Personal"]);
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: First migrated task",
+      }).textContent,
+    ).toBe("Inbox");
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: Second migrated task",
+      }).textContent,
+    ).toBe("Inbox");
+
+    fireEvent.click(screen.getByRole("button", { name: "All tasks 4" }));
+    const taskListText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(taskListText?.indexOf("Inbox before migration")).toBeLessThan(
+      taskListText?.indexOf("First migrated task") ?? -1,
+    );
+    expect(taskListText?.indexOf("First migrated task")).toBeLessThan(
+      taskListText?.indexOf("Second migrated task") ?? -1,
+    );
+    expect(taskListText?.indexOf("Second migrated task")).toBeLessThan(
+      taskListText?.indexOf("Personal after migration") ?? -1,
+    );
+  });
+
+  it("focuses the neighboring category after deleting an inactive category", async () => {
+    const deleteCategory = vi.fn(async () => ({
+      categoryId: personalId,
+      migratedTaskCount: 0,
+      categories: categories.slice(0, 2),
+      tasks: [],
+    }));
+    render(
+      createElement(App, {
+        client: createClient(
+          [],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          deleteCategory,
+        ),
+      }),
+    );
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Personal" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+
+    const workButton = await screen.findByRole("button", { name: "Work 0" });
+    await waitFor(() => expect(document.activeElement).toBe(workButton));
+    expect(
+      screen
+        .getByRole("button", { name: "All tasks 0" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
+  it("uses the command-returned category id for deletion feedback and focus", async () => {
+    const projectsId = "00000000-0000-0000-0000-000000000004";
+    const extendedCategories: readonly CategoryDto[] = [
+      ...categories,
+      { id: projectsId, name: "Projects", position: 3, kind: "user" },
+    ];
+    const deleteCategory = vi.fn(async () => ({
+      categoryId: workId,
+      migratedTaskCount: 0,
+      categories: [
+        extendedCategories[0],
+        { ...extendedCategories[2], position: 1 },
+        { ...extendedCategories[3], position: 2 },
+      ],
+      tasks: [],
+    }));
+    render(
+      createElement(App, {
+        client: createClient(
+          [],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          deleteCategory,
+          extendedCategories,
+        ),
+      }),
+    );
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Projects" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Work deleted. 0 tasks moved to Inbox.",
+    );
+    expect(screen.queryByRole("button", { name: "Work 0" })).toBeNull();
+    expect(
+      screen.queryByRole("form", { name: "Delete category: Projects" }),
+    ).toBeNull();
+    const personalButton = screen.getByRole("button", { name: "Personal 0" });
+    expect(document.activeElement).toBe(personalButton);
+  });
+
+  it.each([
+    [
+      "missing category",
+      new SmartSpaceCommandError("category_not_found", "missing"),
+      "This category is no longer available.",
+    ],
+    [
+      "unknown failure",
+      new Error("offline"),
+      "Category could not be deleted. Try again.",
+    ],
+  ])(
+    "keeps the confirmation open after a %s deletion failure",
+    async (_case, error, message) => {
+      const deleteCategory = vi.fn(async () => {
+        throw error;
+      });
+      render(
+        createElement(App, {
+          client: createClient(
+            [],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            deleteCategory,
+          ),
+        }),
+      );
+      expect(await screen.findByText("No tasks yet")).not.toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Delete category: Work" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+
+      expect((await screen.findByRole("alert")).textContent).toContain(message);
+      expect(
+        screen.getByRole("form", { name: "Delete category: Work" }),
+      ).not.toBeNull();
+      expect(
+        (screen.getByRole("button", { name: /^Delete$/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+      expect(screen.getByRole("button", { name: "Work 0" })).not.toBeNull();
+    },
+  );
+
+  it("ignores a pending category deletion after the client session changes", async () => {
+    const pendingDelete = createDeferred<DeleteCategoryResultDto>();
+    const staleDeleteCategory = vi.fn(() => pendingDelete.promise);
+    const staleClient = createClient(
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      staleDeleteCategory,
+    );
+    const currentClient = createClient([
+      createTask(
+        "10000000-0000-0000-0000-000000000062",
+        "Current deletion session",
+        workId,
+      ),
+    ]);
+    const rendered = render(createElement(App, { client: staleClient }));
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Work" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current deletion session")).not.toBeNull();
+    await act(async () => {
+      pendingDelete.resolve({
+        categoryId: workId,
+        migratedTaskCount: 0,
+        categories: [categories[0], { ...categories[2], position: 1 }],
+        tasks: [],
+      });
+      await pendingDelete.promise;
+    });
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Work 1" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Delete category: Work" }),
+    ).not.toBeNull();
+  });
+
+  it("waits for pending task creation before deleting its category", async () => {
+    const pendingCreate = createDeferred<TaskDto>();
+    const pendingDelete = createDeferred<DeleteCategoryResultDto>();
+    const createTaskCommand = vi.fn(() => pendingCreate.promise);
+    const deleteCategory = vi.fn(() => pendingDelete.promise);
+    const createdTask = createTask(
+      "10000000-0000-0000-0000-000000000063",
+      "Created before category deletion",
+      workId,
+    );
+    const migratedTask = {
+      ...createdTask,
+      categoryId: inboxId,
+      updatedAt: "2026-07-28T09:00:03.000000004Z",
+    };
+    render(
+      createElement(App, {
+        client: createClient(
+          [],
+          createTaskCommand,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          deleteCategory,
+        ),
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Work 0" }));
+    fireEvent.change(screen.getByLabelText("Task title"), {
+      target: { value: "Created before category deletion" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "Add task" }));
+    expect(createTaskCommand).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Work" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+    expect(deleteCategory).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingCreate.resolve(createdTask);
+      await pendingCreate.promise;
+    });
+    await waitFor(() => expect(deleteCategory).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      pendingDelete.resolve({
+        categoryId: workId,
+        migratedTaskCount: 1,
+        categories: [categories[0], { ...categories[2], position: 1 }],
+        tasks: [migratedTask],
+      });
+      await pendingDelete.promise;
+    });
+
+    expect(screen.queryByRole("button", { name: "Work 1" })).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: Created before category deletion",
+      }).textContent,
+    ).toBe("Inbox");
+  });
+
+  it("waits for a pending task rename before applying the deletion snapshot", async () => {
+    const pendingRename = createDeferred<TaskDto>();
+    const pendingDelete = createDeferred<DeleteCategoryResultDto>();
+    const renameTask = vi.fn(() => pendingRename.promise);
+    const deleteCategory = vi.fn(() => pendingDelete.promise);
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000064",
+      "Rename before deletion",
+      workId,
+    );
+    const renamedTask = {
+      ...task,
+      title: "Renamed before deletion",
+      updatedAt: "2026-07-28T09:00:02.000000003Z",
+    };
+    const migratedTask = {
+      ...renamedTask,
+      categoryId: inboxId,
+      updatedAt: "2026-07-28T09:00:03.000000004Z",
+    };
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          renameTask,
+          undefined,
+          undefined,
+          deleteCategory,
+        ),
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit title for task: Rename before deletion",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Title for Rename before deletion"),
+      {
+        target: { value: "Renamed before deletion" },
+      },
+    );
+    fireEvent.submit(
+      screen.getByRole("form", {
+        name: "Edit title for task: Rename before deletion",
+      }),
+    );
+    expect(renameTask).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Work" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+    expect(deleteCategory).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingRename.resolve(renamedTask);
+      await pendingRename.promise;
+    });
+    await waitFor(() => expect(deleteCategory).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      pendingDelete.resolve({
+        categoryId: workId,
+        migratedTaskCount: 1,
+        categories: [categories[0], { ...categories[2], position: 1 }],
+        tasks: [migratedTask],
+      });
+      await pendingDelete.promise;
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: Renamed before deletion",
+      }).textContent,
+    ).toBe("Inbox");
+  });
+
+  it("waits for a pending task move before deleting its target category", async () => {
+    const pendingMove = createDeferred<TaskDto>();
+    const pendingDelete = createDeferred<DeleteCategoryResultDto>();
+    const moveTask = vi.fn(() => pendingMove.promise);
+    const deleteCategory = vi.fn(() => pendingDelete.promise);
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000065",
+      "Move before deletion",
+      workId,
+    );
+    const movedTask = {
+      ...task,
+      categoryId: personalId,
+      updatedAt: "2026-07-28T09:00:02.000000003Z",
+    };
+    const migratedTask = {
+      ...movedTask,
+      categoryId: inboxId,
+      updatedAt: "2026-07-28T09:00:03.000000004Z",
+    };
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          moveTask,
+          undefined,
+          undefined,
+          undefined,
+          deleteCategory,
+        ),
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit category for task: Move before deletion",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Category for Move before deletion"),
+      {
+        target: { value: personalId },
+      },
+    );
+    fireEvent.submit(
+      screen.getByRole("form", {
+        name: "Edit category for task: Move before deletion",
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete category: Personal" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+    expect(deleteCategory).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingMove.resolve(movedTask);
+      await pendingMove.promise;
+    });
+    await waitFor(() => expect(deleteCategory).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      pendingDelete.resolve({
+        categoryId: personalId,
+        migratedTaskCount: 1,
+        categories: categories.slice(0, 2),
+        tasks: [migratedTask],
+      });
+      await pendingDelete.promise;
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: Move before deletion",
+      }).textContent,
+    ).toBe("Inbox");
   });
 
   it("completes once, then reopens the same task from returned DTOs", async () => {

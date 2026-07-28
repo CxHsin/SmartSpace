@@ -788,6 +788,8 @@ describe("SmartSpaceClient delete category command", () => {
     const result: DeleteCategoryResultDto = {
       categoryId: "00000000-0000-0000-0000-000000000002",
       migratedTaskCount: 3,
+      categories,
+      tasks,
     };
     const invokeCommand: InvokeCommand = async <T>(
       command: string,

@@ -12,6 +12,8 @@ import {
   type CategoryDto,
   type CreateCategoryInput,
   type CreateTaskInput,
+  type DeleteCategoryInput,
+  type DeleteCategoryResultDto,
   type MoveTaskInput,
   type RenameCategoryInput,
   type RenameTaskInput,
@@ -1101,14 +1103,37 @@ function getReorderCategoriesErrorMessage(error: unknown) {
   return "Categories could not be reordered. Try again.";
 }
 
+function getDeleteCategoryErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "category_not_found") {
+      return "This category is no longer available.";
+    }
+
+    if (error.code === "cannot_delete_inbox") {
+      return "Inbox cannot be deleted.";
+    }
+
+    if (error.code === "invalid_input") {
+      return "This category could not be deleted.";
+    }
+  }
+
+  return "Category could not be deleted. Try again.";
+}
+
 interface CategoryReorderFocusRequest {
   readonly direction: -1 | 1;
+  readonly sequence: number;
+}
+
+interface CategoryDeleteFocusRequest {
   readonly sequence: number;
 }
 
 function CategoryNavigationItem({
   category,
   count,
+  deleteFocusRequest,
   isActive,
   isCategoryMutationPending,
   isFirst,
@@ -1116,12 +1141,14 @@ function CategoryNavigationItem({
   isReorderingCategories,
   onMoveEarlier,
   onMoveLater,
+  onDeleteCategory,
   onRenameCategory,
   onSelect,
   reorderFocusRequest,
 }: {
   readonly category: CategoryDto;
   readonly count: number;
+  readonly deleteFocusRequest?: CategoryDeleteFocusRequest;
   readonly isActive: boolean;
   readonly isCategoryMutationPending: boolean;
   readonly isFirst: boolean;
@@ -1129,6 +1156,9 @@ function CategoryNavigationItem({
   readonly isReorderingCategories: boolean;
   readonly onMoveEarlier?: () => void;
   readonly onMoveLater?: () => void;
+  readonly onDeleteCategory?: (
+    input: DeleteCategoryInput,
+  ) => Promise<DeleteCategoryResultDto>;
   readonly onRenameCategory?: (
     input: RenameCategoryInput,
   ) => Promise<CategoryDto>;
@@ -1136,14 +1166,23 @@ function CategoryNavigationItem({
   readonly reorderFocusRequest?: CategoryReorderFocusRequest;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [nameDraft, setNameDraft] = useState(category.name);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<CreateFeedback>();
+  const [deleteFeedback, setDeleteFeedback] = useState<CreateFeedback>();
+  const deleteSubmittingRef = useRef(false);
   const submittingRef = useRef(false);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const deleteFormRef = useRef<HTMLFormElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const moveEarlierRef = useRef<HTMLButtonElement>(null);
   const moveLaterRef = useRef<HTMLButtonElement>(null);
+  const navigationButtonRef = useRef<HTMLButtonElement>(null);
   const renameTriggerRef = useRef<HTMLButtonElement>(null);
+  const shouldRestoreDeleteFocusRef = useRef(false);
   const shouldRestoreFocusRef = useRef(false);
 
   useEffect(() => {
@@ -1157,12 +1196,34 @@ function CategoryNavigationItem({
   }, [isEditing]);
 
   useEffect(() => {
-    if (isReorderingCategories && isEditing && !submittingRef.current) {
-      setNameDraft(category.name);
-      setFeedback(undefined);
-      setIsEditing(false);
+    if (isReorderingCategories) {
+      if (isEditing && !submittingRef.current) {
+        setNameDraft(category.name);
+        setFeedback(undefined);
+        setIsEditing(false);
+      }
+      if (isConfirmingDelete && !deleteSubmittingRef.current) {
+        setDeleteFeedback(undefined);
+        setIsConfirmingDelete(false);
+      }
     }
-  }, [category.name, isEditing, isReorderingCategories]);
+  }, [category.name, isConfirmingDelete, isEditing, isReorderingCategories]);
+
+  useEffect(() => {
+    if (isConfirmingDelete) {
+      deleteCancelRef.current?.focus();
+      deleteFormRef.current?.scrollIntoView?.({ block: "nearest" });
+    } else if (shouldRestoreDeleteFocusRef.current) {
+      shouldRestoreDeleteFocusRef.current = false;
+      deleteTriggerRef.current?.focus();
+    }
+  }, [isConfirmingDelete]);
+
+  useEffect(() => {
+    if (deleteFocusRequest !== undefined) {
+      navigationButtonRef.current?.focus();
+    }
+  }, [deleteFocusRequest]);
 
   useEffect(() => {
     if (reorderFocusRequest === undefined) {
@@ -1193,6 +1254,16 @@ function CategoryNavigationItem({
     setFeedback(undefined);
     shouldRestoreFocusRef.current = true;
     setIsEditing(false);
+  }
+
+  function closeDeleteConfirmation() {
+    if (deleteSubmittingRef.current) {
+      return;
+    }
+
+    setDeleteFeedback(undefined);
+    shouldRestoreDeleteFocusRef.current = true;
+    setIsConfirmingDelete(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1231,15 +1302,47 @@ function CategoryNavigationItem({
     }
   }
 
+  async function handleDeleteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      deleteSubmittingRef.current ||
+      onDeleteCategory === undefined ||
+      category.kind !== "user"
+    ) {
+      return;
+    }
+
+    deleteSubmittingRef.current = true;
+    setIsDeleting(true);
+    setDeleteFeedback(undefined);
+    try {
+      await onDeleteCategory({ categoryId: category.id });
+      setIsConfirmingDelete(false);
+    } catch (error) {
+      setDeleteFeedback({
+        kind: "error",
+        message: getDeleteCategoryErrorMessage(error),
+      });
+    } finally {
+      deleteSubmittingRef.current = false;
+      setIsDeleting(false);
+    }
+  }
+
+  const canDelete = category.kind === "user" && onDeleteCategory !== undefined;
+  const hasCategoryActions = onRenameCategory !== undefined || canDelete;
+
   return (
     <li className="category-navigation-item">
       <div
         className={
-          onRenameCategory === undefined && !isReorderingCategories
+          !hasCategoryActions && !isReorderingCategories
             ? "category-navigation-row category-navigation-row-readonly"
             : isReorderingCategories
               ? "category-navigation-row category-navigation-row-reordering"
-              : "category-navigation-row"
+              : onRenameCategory !== undefined && canDelete
+                ? "category-navigation-row category-navigation-row-actions"
+                : "category-navigation-row"
         }
       >
         <button
@@ -1247,6 +1350,7 @@ function CategoryNavigationItem({
           className="nav-item"
           disabled={isSubmitting}
           onClick={onSelect}
+          ref={navigationButtonRef}
           type="button"
         >
           <span className="truncate">{category.name}</span>
@@ -1277,23 +1381,52 @@ function CategoryNavigationItem({
               <span aria-hidden="true">v</span>
             </button>
           </div>
-        ) : onRenameCategory === undefined ? null : (
-          <button
-            aria-expanded={isEditing}
-            aria-label={`Rename category: ${category.name}`}
-            className="category-rename-trigger"
-            disabled={isSubmitting || isCategoryMutationPending}
-            onClick={() => {
-              setNameDraft(category.name);
-              setFeedback(undefined);
-              setIsEditing(true);
-            }}
-            ref={renameTriggerRef}
-            title="Rename category"
-            type="button"
-          >
-            <span aria-hidden="true">Aa</span>
-          </button>
+        ) : !hasCategoryActions ? null : (
+          <div className="category-item-actions">
+            {onRenameCategory === undefined ? null : (
+              <button
+                aria-expanded={isEditing}
+                aria-label={`Rename category: ${category.name}`}
+                className="category-rename-trigger"
+                disabled={
+                  isSubmitting || isDeleting || isCategoryMutationPending
+                }
+                onClick={() => {
+                  setIsConfirmingDelete(false);
+                  setDeleteFeedback(undefined);
+                  setNameDraft(category.name);
+                  setFeedback(undefined);
+                  setIsEditing(true);
+                }}
+                ref={renameTriggerRef}
+                title="Rename category"
+                type="button"
+              >
+                <span aria-hidden="true">Aa</span>
+              </button>
+            )}
+            {canDelete ? (
+              <button
+                aria-expanded={isConfirmingDelete}
+                aria-label={`Delete category: ${category.name}`}
+                className="category-delete-trigger"
+                disabled={
+                  isDeleting || isSubmitting || isCategoryMutationPending
+                }
+                onClick={() => {
+                  setIsEditing(false);
+                  setFeedback(undefined);
+                  setDeleteFeedback(undefined);
+                  setIsConfirmingDelete(true);
+                }}
+                ref={deleteTriggerRef}
+                title="Delete category"
+                type="button"
+              >
+                <span aria-hidden="true">x</span>
+              </button>
+            ) : null}
+          </div>
         )}
       </div>
       {isEditing && !isReorderingCategories ? (
@@ -1351,6 +1484,43 @@ function CategoryNavigationItem({
           </div>
         </form>
       ) : null}
+      {isConfirmingDelete && !isReorderingCategories ? (
+        <form
+          aria-label={`Delete category: ${category.name}`}
+          className="category-delete-form"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeDeleteConfirmation();
+            }
+          }}
+          onSubmit={handleDeleteSubmit}
+          ref={deleteFormRef}
+        >
+          <p className="category-delete-message">
+            Delete {category.name}? {count} {count === 1 ? "task" : "tasks"}{" "}
+            will move to Inbox.
+          </p>
+          <div className="category-delete-actions">
+            <button
+              className="category-delete-confirm"
+              disabled={isDeleting || isCategoryMutationPending}
+              type="submit"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </button>
+            <button
+              className="category-delete-cancel"
+              disabled={isDeleting || isCategoryMutationPending}
+              onClick={closeDeleteConfirmation}
+              ref={deleteCancelRef}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
       {feedback === undefined ? null : (
         <p
           className={
@@ -1363,6 +1533,14 @@ function CategoryNavigationItem({
           {feedback.message}
         </p>
       )}
+      {deleteFeedback === undefined ? null : (
+        <p
+          className="category-delete-feedback text-[var(--status-danger)]"
+          role="alert"
+        >
+          {deleteFeedback.message}
+        </p>
+      )}
     </li>
   );
 }
@@ -1371,6 +1549,7 @@ export function TaskWorkspace({
   data,
   onCreateCategory,
   onCreateTask,
+  onDeleteCategory,
   onMoveTask,
   onRenameCategory,
   onRenameTask,
@@ -1383,6 +1562,9 @@ export function TaskWorkspace({
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onDeleteCategory?: (
+    input: DeleteCategoryInput,
+  ) => Promise<DeleteCategoryResultDto>;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
   readonly onRenameCategory?: (
     input: RenameCategoryInput,
@@ -1401,12 +1583,20 @@ export function TaskWorkspace({
     useState(false);
   const [categoryReorderFeedback, setCategoryReorderFeedback] =
     useState<CreateFeedback>();
+  const [categoryDeleteFeedback, setCategoryDeleteFeedback] =
+    useState<CreateFeedback>();
+  const [categoryDeleteFocus, setCategoryDeleteFocus] = useState<
+    (CategoryDeleteFocusRequest & { readonly categoryId: string }) | undefined
+  >();
   const [categoryReorderFocus, setCategoryReorderFocus] = useState<
     (CategoryReorderFocusRequest & { readonly categoryId: string }) | undefined
   >();
   const today = useLocalCalendarDate();
   const categoryMutationPendingRef = useRef(false);
+  const categoryDeleteFocusSequenceRef = useRef(0);
   const categoryReorderFocusSequenceRef = useRef(0);
+  const selectedViewIdRef = useRef(selectedViewId);
+  const shouldFocusViewHeadingAfterCategoryDeleteRef = useRef(false);
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
   const pendingViewHeadingFocusRef = useRef<
     { readonly taskId: string; readonly viewId: string } | undefined
@@ -1415,6 +1605,9 @@ export function TaskWorkspace({
     () => new Map(data.categories.map((category) => [category.id, category])),
     [data.categories],
   );
+  useEffect(() => {
+    selectedViewIdRef.current = selectedViewId;
+  }, [selectedViewId]);
   const taskCounts = useMemo(
     () => countTasksByCategory(data.tasks, today),
     [data.tasks, today],
@@ -1440,17 +1633,74 @@ export function TaskWorkspace({
     () =>
       onCreateCategory === undefined
         ? undefined
-        : (input: CreateCategoryInput) =>
-            runCategoryMutation(() => onCreateCategory(input)),
+        : (input: CreateCategoryInput) => {
+            setCategoryDeleteFeedback(undefined);
+            return runCategoryMutation(() => onCreateCategory(input));
+          },
     [onCreateCategory, runCategoryMutation],
   );
   const renameCategoryForWorkspace = useMemo(
     () =>
       onRenameCategory === undefined
         ? undefined
-        : (input: RenameCategoryInput) =>
-            runCategoryMutation(() => onRenameCategory(input)),
+        : (input: RenameCategoryInput) => {
+            setCategoryDeleteFeedback(undefined);
+            return runCategoryMutation(() => onRenameCategory(input));
+          },
     [onRenameCategory, runCategoryMutation],
+  );
+  const deleteCategoryForWorkspace = useMemo(
+    () =>
+      onDeleteCategory === undefined
+        ? undefined
+        : async (input: DeleteCategoryInput) => {
+            setCategoryDeleteFeedback(undefined);
+            setCategoryReorderFeedback(undefined);
+            const result = await runCategoryMutation(() =>
+              onDeleteCategory(input),
+            );
+            const deletedIndex = data.categories.findIndex(
+              (category) => category.id === result.categoryId,
+            );
+            const deletedCategory = data.categories[deletedIndex];
+            const remainingCategories = data.categories.filter(
+              (category) => category.id !== result.categoryId,
+            );
+            const inboxCategory = remainingCategories.find(
+              (category) => category.kind === "inbox",
+            );
+            const fallbackCategory =
+              remainingCategories[
+                Math.min(
+                  Math.max(deletedIndex, 0),
+                  remainingCategories.length - 1,
+                )
+              ] ?? inboxCategory;
+            const categoryName = deletedCategory?.name ?? "Category";
+            setCategoryDeleteFeedback({
+              kind: "success",
+              message: `${categoryName} deleted. ${result.migratedTaskCount} ${result.migratedTaskCount === 1 ? "task" : "tasks"} moved to Inbox.`,
+            });
+
+            if (
+              selectedViewIdRef.current === result.categoryId &&
+              inboxCategory !== undefined
+            ) {
+              selectedViewIdRef.current = inboxCategory.id;
+              shouldFocusViewHeadingAfterCategoryDeleteRef.current = true;
+              setSelectedViewId(inboxCategory.id);
+              setViewHeadingFocusVersion((version) => version + 1);
+            } else if (fallbackCategory !== undefined) {
+              categoryDeleteFocusSequenceRef.current += 1;
+              setCategoryDeleteFocus({
+                categoryId: fallbackCategory.id,
+                sequence: categoryDeleteFocusSequenceRef.current,
+              });
+            }
+
+            return result;
+          },
+    [data.categories, onDeleteCategory, runCategoryMutation],
   );
   const reorderCategory = useCallback(
     async (categoryId: string, offset: -1 | 1) => {
@@ -1477,6 +1727,7 @@ export function TaskWorkspace({
         orderedCategoryIds[sourceIndex],
       ];
       setCategoryReorderFeedback(undefined);
+      setCategoryDeleteFeedback(undefined);
 
       try {
         await runCategoryMutation(() =>
@@ -1564,6 +1815,12 @@ export function TaskWorkspace({
   }, [effectiveViewId, onMoveTask]);
 
   useEffect(() => {
+    if (shouldFocusViewHeadingAfterCategoryDeleteRef.current) {
+      shouldFocusViewHeadingAfterCategoryDeleteRef.current = false;
+      viewHeadingRef.current?.focus();
+      return;
+    }
+
     const pendingFocus = pendingViewHeadingFocusRef.current;
     if (pendingFocus === undefined) {
       return;
@@ -1648,7 +1905,8 @@ export function TaskWorkspace({
 
         <div className="mt-5">
           {onCreateCategory === undefined &&
-          onReorderCategories === undefined ? (
+          onReorderCategories === undefined &&
+          onDeleteCategory === undefined ? (
             <p className="px-2 pb-2 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
               Categories
             </p>
@@ -1662,6 +1920,7 @@ export function TaskWorkspace({
                   ? undefined
                   : () => {
                       setCategoryReorderFeedback(undefined);
+                      setCategoryDeleteFeedback(undefined);
                       setIsReorderingCategories((current) => !current);
                     }
               }
@@ -1673,6 +1932,11 @@ export function TaskWorkspace({
             <CategoryNavigationItem
               category={category}
               count={taskCounts.byCategory.get(category.id) ?? 0}
+              deleteFocusRequest={
+                categoryDeleteFocus?.categoryId === category.id
+                  ? categoryDeleteFocus
+                  : undefined
+              }
               isActive={effectiveViewId === category.id}
               isCategoryMutationPending={isCategoryMutationPending}
               isFirst={index === 0}
@@ -1685,6 +1949,7 @@ export function TaskWorkspace({
               onMoveLater={() => {
                 void reorderCategory(category.id, 1);
               }}
+              onDeleteCategory={deleteCategoryForWorkspace}
               onRenameCategory={renameCategoryForWorkspace}
               onSelect={() => setSelectedViewId(category.id)}
               reorderFocusRequest={
@@ -1705,6 +1970,18 @@ export function TaskWorkspace({
             role={categoryReorderFeedback.kind === "error" ? "alert" : "status"}
           >
             {categoryReorderFeedback.message}
+          </p>
+        )}
+        {categoryDeleteFeedback === undefined ? null : (
+          <p
+            className={
+              categoryDeleteFeedback.kind === "error"
+                ? "category-delete-feedback text-[var(--status-danger)]"
+                : "category-delete-feedback text-[var(--status-success)]"
+            }
+            role={categoryDeleteFeedback.kind === "error" ? "alert" : "status"}
+          >
+            {categoryDeleteFeedback.message}
           </p>
         )}
       </nav>

@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use super::CommandError;
 use crate::{
-    domain::{Category, CategoryId, CategoryName},
-    storage::{DatabaseRuntimeError, DatabaseState, StorageError},
+    domain::{Category, CategoryId, CategoryName, Task},
+    storage::{CategoryDeletionSnapshot, DatabaseRuntimeError, DatabaseState, StorageError},
 };
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +38,8 @@ pub(crate) struct DeleteCategoryRequest {
 pub(crate) struct DeleteCategoryResult {
     category_id: CategoryId,
     migrated_task_count: usize,
+    categories: Vec<Category>,
+    tasks: Vec<Task>,
 }
 
 #[tauri::command]
@@ -154,13 +156,19 @@ fn delete_category_from_state(
         .map_err(|_| CommandError::invalid_input("categoryId must be a valid UUID"))?;
 
     let mut database = database_state.lock().map_err(CommandError::from)?;
-    let migrated_task_count = database
+    let CategoryDeletionSnapshot {
+        migrated_task_count,
+        categories,
+        tasks,
+    } = database
         .delete_category(category_id, now)
         .map_err(DatabaseRuntimeError::from)
         .map_err(CommandError::from)?;
     Ok(DeleteCategoryResult {
         category_id,
         migrated_task_count,
+        categories,
+        tasks,
     })
 }
 
@@ -175,8 +183,7 @@ mod tests {
     use super::{
         create_category_from_state, delete_category_from_state, list_categories_from_state,
         rename_category_from_state, reorder_categories_from_state, CreateCategoryRequest,
-        DeleteCategoryRequest, DeleteCategoryResult, RenameCategoryRequest,
-        ReorderCategoriesRequest,
+        DeleteCategoryRequest, RenameCategoryRequest, ReorderCategoriesRequest,
     };
 
     #[test]
@@ -206,20 +213,31 @@ mod tests {
         let result =
             delete_category_from_state(&state, delete_request(work.id()), deleted_at).unwrap();
 
+        assert_eq!(result.category_id, work.id());
+        assert_eq!(result.migrated_task_count, 2);
         assert_eq!(
-            result,
-            DeleteCategoryResult {
-                category_id: work.id(),
-                migrated_task_count: 2,
-            }
+            result
+                .categories
+                .iter()
+                .map(|category| category.id())
+                .collect::<Vec<_>>(),
+            vec![CategoryId::INBOX, later.id()]
         );
         assert_eq!(
-            serde_json::to_value(&result).unwrap(),
-            serde_json::json!({
-                "categoryId": work.id().as_uuid().to_string(),
-                "migratedTaskCount": 2
-            })
+            result
+                .tasks
+                .iter()
+                .map(|task| task.id())
+                .collect::<Vec<_>>(),
+            vec![inbox_task.id(), first.id(), second.id()]
         );
+        assert_eq!(result.tasks[1].updated_at(), deleted_at);
+        assert_eq!(result.tasks[2].updated_at(), deleted_at);
+        let serialized = serde_json::to_value(&result).unwrap();
+        assert_eq!(serialized["categoryId"], work.id().as_uuid().to_string());
+        assert_eq!(serialized["migratedTaskCount"], 2);
+        assert_eq!(serialized["categories"].as_array().unwrap().len(), 2);
+        assert_eq!(serialized["tasks"].as_array().unwrap().len(), 3);
         let inbox_tasks = state
             .lock()
             .unwrap()
