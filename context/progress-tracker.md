@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 44（分类重命名交互）已通过完整验证与独立 review，待提交并推送。
+- 模块 44（分类重命名交互）已提交并推送；下一模块待登记。
 
 ## Current Goal
 
@@ -70,7 +70,7 @@
 - **模块 41：原生 Windows 可执行文件选择 command** 已完成实现与审查：引入与 Tauri 2.11.5 共用运行时的官方 `tauri-plugin-dialog` 2.7.2，初始化 plugin 并注册窄 `pick_application_executable` command；异步 command 只打开原生单文件 `.exe` 选择器，取消返回 `null`，返回前复验绝对路径、无损 Unicode、大小写不敏感扩展名、存在性和普通文件类型，失败统一为结构化 `invalid_input`，不访问数据库或进程 API。4 条聚焦测试覆盖全部纯边界分支；85 条前端测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；真实系统对话框交互留待 React 添加应用入口端到端验收，未来启动边界必须再次验证文件并把 TOCTOU 失败映射为可恢复状态；模块提交 `b65dafb` 已推送到 `origin/main`。
 - **模块 42：前端可执行文件选择 IPC 客户端** 已完成实现与审查：可注入 `SmartSpaceClient` 新增必需的 `pickApplicationExecutable(): Promise<string | null>`，默认客户端精确调用 `pick_application_executable` 且不传 args，选中路径与取消 `null` 原样返回，`invalid_input` 和未知拒绝复用统一 `SmartSpaceCommandError` 边界；App 与 workspace loader 的全部手写客户端替身显式拒绝意外 picker 调用。新增 4 条客户端测试；89 条前端测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；与现有 IPC 方法一致，运行时响应形状由类型化 Tauri 边界保证，当前不重复解码；模块提交 `11a03f3` 已推送到 `origin/main`。
 - **模块 43：任务标题重命名交互** 已完成实现与审查：任务行新增可访问的标题 trigger 与内联编辑器，通过既有 `rename_task` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、保存后焦点恢复、结构化错误保留草稿，以及标题/状态/日期/分类共享同步行锁。App 使用函数式状态替换并依靠 keyed client session 隔离旧请求。50 条 App 聚焦测试、95 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的长标题、无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `defbeaa` 已推送到 `origin/main`。
-- **模块 44：分类重命名交互** 已完成实现与审查：分类导航新增独立重命名 trigger 与内联编辑器，通过既有 `rename_category` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、同步重复提交锁、保存后焦点恢复和四类错误保留草稿。名称更新会同步当前分类标题、导航、任务分类展示和新任务分类选择器，keyed client session 隔离旧请求。57 条 App 聚焦测试、102 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的超长无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；提交与推送待完成。
+- **模块 44：分类重命名交互** 已完成实现与审查：分类导航新增独立重命名 trigger 与内联编辑器，通过既有 `rename_category` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、同步重复提交锁、保存后焦点恢复和四类错误保留草稿。名称更新会同步当前分类标题、导航、任务分类展示和新任务分类选择器，keyed client session 隔离旧请求。57 条 App 聚焦测试、102 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的超长无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `a3e4a48` 已推送到 `origin/main`。
 
 ## In Progress
 
@@ -78,8 +78,7 @@
 
 ## Next Up
 
-1. 提交并推送模块 44，再记录实现提交哈希。
-2. Upcoming 与应用配置重复规则获得用户确认后，再登记对应视图或持久化模块。
+1. Upcoming 与应用配置重复规则获得用户确认后，再登记对应视图或持久化模块。
 
 ## Open Questions
 
