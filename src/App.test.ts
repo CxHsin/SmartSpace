@@ -107,6 +107,7 @@ function createClient(
   },
   setTaskStatus: SmartSpaceClient["setTaskStatus"] = unexpectedSetTaskStatus,
   createCategory: SmartSpaceClient["createCategory"] = unexpectedCreateCategory,
+  setTaskDueDate: SmartSpaceClient["setTaskDueDate"] = unexpectedSetTaskDueDate,
 ): SmartSpaceClient {
   return {
     listCategories: vi.fn(async () => categories),
@@ -114,7 +115,7 @@ function createClient(
     createTask,
     setTaskStatus,
     renameTask: unexpectedRenameTask,
-    setTaskDueDate: unexpectedSetTaskDueDate,
+    setTaskDueDate,
     moveTask: unexpectedMoveTask,
     reorderTasks: unexpectedReorderTasks,
     deleteTask: unexpectedDeleteTask,
@@ -681,7 +682,9 @@ describe("App task workspace lifecycle", () => {
     expect(screen.getByText("Due 2000-01-01").className).toContain(
       "status-danger",
     );
-    expect(screen.getByText(`Due ${localToday}`).className).toBe("");
+    expect(screen.getByText(`Due ${localToday}`).className).not.toContain(
+      "status-danger",
+    );
   });
 
   it("refreshes overdue state at local midnight and cleans up its timer", () => {
@@ -1256,5 +1259,346 @@ describe("App task workspace lifecycle", () => {
       }),
     ).not.toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("sets and clears a due date using returned task DTOs", async () => {
+    const pendingUpdate = createDeferred<TaskDto>();
+    const originalTask: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000024",
+        "Schedule task",
+        workId,
+      ),
+      dueDate: "2026-08-01",
+    };
+    const datedTask: TaskDto = {
+      ...originalTask,
+      dueDate: "2026-08-03",
+      updatedAt: "2026-07-28T11:00:00.000000001Z",
+    };
+    const clearedTask: TaskDto = {
+      ...datedTask,
+      dueDate: null,
+      updatedAt: "2026-07-28T11:01:00.000000001Z",
+    };
+    const setTaskDueDate = vi
+      .fn<SmartSpaceClient["setTaskDueDate"]>()
+      .mockImplementationOnce(() => pendingUpdate.promise)
+      .mockResolvedValueOnce(clearedTask);
+    render(
+      createElement(App, {
+        client: createClient(
+          [originalTask],
+          undefined,
+          undefined,
+          undefined,
+          setTaskDueDate,
+        ),
+      }),
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Edit due date for task: Schedule task",
+    });
+    expect(trigger.textContent).toBe("Due 2026-08-01");
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText(
+      "Due date for Schedule task",
+    ) as HTMLInputElement;
+    expect(input.value).toBe("2026-08-01");
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "2026-08-03" } });
+    const form = screen.getByRole("form", {
+      name: "Edit due date for task: Schedule task",
+    });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(setTaskDueDate).toHaveBeenCalledTimes(1);
+    expect(setTaskDueDate).toHaveBeenCalledWith({
+      taskId: originalTask.id,
+      dueDate: "2026-08-03",
+    });
+    expect(
+      (screen.getByRole("button", { name: "Saving..." }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Updating task: Schedule task",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      pendingUpdate.resolve(datedTask);
+      await pendingUpdate.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Due date updated.",
+    );
+    const updatedTrigger = screen.getByRole("button", {
+      name: "Edit due date for task: Schedule task",
+    });
+    expect(updatedTrigger.textContent).toBe("Due 2026-08-03");
+    expect(document.activeElement).toBe(updatedTrigger);
+
+    fireEvent.click(updatedTrigger);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(setTaskDueDate).toHaveBeenNthCalledWith(2, {
+      taskId: originalTask.id,
+      dueDate: null,
+    });
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Due date cleared.",
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Edit due date for task: Schedule task",
+      }).textContent,
+    ).toBe("Add due date");
+  });
+
+  it("cancels a due date draft with Escape and restores focus", async () => {
+    const task: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000025",
+        "Keep original date",
+        inboxId,
+      ),
+      dueDate: "2026-08-04",
+    };
+    const setTaskDueDate = vi.fn<SmartSpaceClient["setTaskDueDate"]>();
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          setTaskDueDate,
+        ),
+      }),
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Edit due date for task: Keep original date",
+    });
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("Due date for Keep original date");
+    fireEvent.change(input, { target: { value: "2026-08-09" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(
+      screen.queryByLabelText("Due date for Keep original date"),
+    ).toBeNull();
+    expect(setTaskDueDate).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    expect(
+      (
+        screen.getByLabelText(
+          "Due date for Keep original date",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("2026-08-04");
+  });
+
+  it.each([
+    [
+      "invalid input",
+      new SmartSpaceCommandError("invalid_input", "invalid date"),
+      "Enter a valid due date.",
+    ],
+    [
+      "missing task",
+      new SmartSpaceCommandError("task_not_found", "missing task"),
+      "This task is no longer available.",
+    ],
+    [
+      "unknown failure",
+      new Error("offline"),
+      "Due date could not be updated. Try again.",
+    ],
+  ])("retains the due date draft after %s", async (_case, error, message) => {
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000026",
+      "Retry date task",
+      inboxId,
+    );
+    const setTaskDueDate = vi.fn(async () => {
+      throw error;
+    });
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          setTaskDueDate,
+        ),
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit due date for task: Retry date task",
+      }),
+    );
+    const input = screen.getByLabelText("Due date for Retry date task");
+    fireEvent.change(input, { target: { value: "2026-08-05" } });
+    fireEvent.submit(
+      screen.getByRole("form", {
+        name: "Edit due date for task: Retry date task",
+      }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(message);
+    expect((input as HTMLInputElement).value).toBe("2026-08-05");
+    expect(
+      (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("updates Today and overdue state after setting a due date", async () => {
+    const today = getLocalTodayForTest();
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000027",
+      "Date-derived task",
+      personalId,
+    );
+    const setTaskDueDate = vi
+      .fn<SmartSpaceClient["setTaskDueDate"]>()
+      .mockResolvedValue({ ...task, dueDate: today });
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          setTaskDueDate,
+        ),
+      }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Today 0" }),
+    ).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit due date for task: Date-derived task",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Due date for Date-derived task"), {
+      target: { value: today },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const todayButton = await screen.findByRole("button", { name: "Today 1" });
+    fireEvent.click(todayButton);
+    expect(screen.getByText("Date-derived task")).not.toBeNull();
+    expect(screen.queryByText("Overdue")).toBeNull();
+  });
+
+  it("focuses the Today heading when clearing a date removes the edited task", async () => {
+    const today = getLocalTodayForTest();
+    const task: TaskDto = {
+      ...createTask(
+        "10000000-0000-0000-0000-000000000030",
+        "Leave Today after clearing",
+        inboxId,
+      ),
+      dueDate: today,
+    };
+    const setTaskDueDate = vi
+      .fn<SmartSpaceClient["setTaskDueDate"]>()
+      .mockResolvedValue({ ...task, dueDate: null });
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          setTaskDueDate,
+        ),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Today 1" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit due date for task: Leave Today after clearing",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(await screen.findByText("No tasks due today")).not.toBeNull();
+    expect(setTaskDueDate).toHaveBeenCalledWith({
+      taskId: task.id,
+      dueDate: null,
+    });
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Today", level: 2 }),
+    );
+  });
+
+  it("ignores a pending due date result after the client session changes", async () => {
+    const pendingDueDate = createDeferred<TaskDto>();
+    const staleTask = createTask(
+      "10000000-0000-0000-0000-000000000028",
+      "Stale due date task",
+      inboxId,
+    );
+    const staleSetTaskDueDate = vi.fn(() => pendingDueDate.promise);
+    const staleClient = createClient(
+      [staleTask],
+      undefined,
+      undefined,
+      undefined,
+      staleSetTaskDueDate,
+    );
+    const currentTask = createTask(
+      "10000000-0000-0000-0000-000000000029",
+      "Current due date task",
+      inboxId,
+    );
+    const currentClient = createClient([currentTask]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit due date for task: Stale due date task",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Due date for Stale due date task"),
+      {
+        target: { value: "2026-08-06" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current due date task")).not.toBeNull();
+
+    await act(async () => {
+      pendingDueDate.resolve({ ...staleTask, dueDate: "2026-08-06" });
+      await pendingDueDate.promise;
+    });
+
+    expect(screen.queryByText("Stale due date task")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Edit due date for task: Current due date task",
+      }).textContent,
+    ).toBe("Add due date");
   });
 });

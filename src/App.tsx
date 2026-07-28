@@ -11,6 +11,7 @@ import {
   type CategoryDto,
   type CreateCategoryInput,
   type CreateTaskInput,
+  type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type SmartSpaceClient,
   type TaskDto,
@@ -183,6 +184,7 @@ export function WorkspaceBody({
   onRetry,
   onCreateCategory,
   onCreateTask,
+  onSetTaskDueDate,
   onSetTaskStatus,
   loadingRegionRef,
 }: {
@@ -192,6 +194,7 @@ export function WorkspaceBody({
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
 }) {
@@ -208,6 +211,7 @@ export function WorkspaceBody({
           data={workspace.data}
           onCreateCategory={onCreateCategory}
           onCreateTask={onCreateTask}
+          onSetTaskDueDate={onSetTaskDueDate}
           onSetTaskStatus={onSetTaskStatus}
         />
       ) : null}
@@ -303,6 +307,22 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     [client],
   );
 
+  const setTaskDueDate = useCallback(
+    async (input: SetTaskDueDateInput) => {
+      const updatedTask = await client.setTaskDueDate(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: replaceTask(current.data, input.taskId, updatedTask),
+            }
+          : current,
+      );
+      return updatedTask;
+    },
+    [client],
+  );
+
   return (
     <main className="grid h-screen min-h-0 grid-rows-[3.25rem_minmax(0,1fr)] overflow-hidden bg-[var(--surface-canvas)] text-[var(--text-primary)]">
       <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-raised)] px-4">
@@ -322,6 +342,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
         loadingRegionRef={loadingRegionRef}
         onCreateCategory={createCategory}
         onCreateTask={createTask}
+        onSetTaskDueDate={setTaskDueDate}
         onSetTaskStatus={setTaskStatus}
         onRetry={() => {
           shouldFocusLoading.current = true;

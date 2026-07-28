@@ -11,6 +11,7 @@ import {
   type CategoryDto,
   type CreateCategoryInput,
   type CreateTaskInput,
+  type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type TaskDto,
 } from "../../lib/smartspace-client";
@@ -96,24 +97,101 @@ function getSetTaskStatusErrorMessage(error: unknown) {
   return "Task could not be updated. Try again.";
 }
 
+function getSetTaskDueDateErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "task_not_found") {
+      return "This task is no longer available.";
+    }
+
+    if (error.code === "invalid_input") {
+      return "Enter a valid due date.";
+    }
+  }
+
+  return "Due date could not be updated. Try again.";
+}
+
 const TaskRow = memo(function TaskRow({
   category,
   isOverdue,
+  onSetTaskDueDate,
   onSetTaskStatus,
   task,
 }: {
   readonly category: CategoryDto | undefined;
   readonly isOverdue: boolean;
+  readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly task: TaskDto;
 }) {
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"due-date" | "status">();
   const [feedback, setFeedback] = useState<TaskFeedback>();
+  const [isEditingDueDate, setIsEditingDueDate] = useState(false);
+  const [dueDateDraft, setDueDateDraft] = useState(task.dueDate ?? "");
   const updatingRef = useRef(false);
+  const dueDateInputRef = useRef<HTMLInputElement>(null);
+  const dueDateTriggerRef = useRef<HTMLButtonElement>(null);
+  const shouldRestoreDueDateFocusRef = useRef(false);
   const isCompleted = task.status === "completed";
+  const isUpdating = pendingAction !== undefined;
   const actionLabel = isCompleted
     ? `Reopen task: ${task.title}`
     : `Complete task: ${task.title}`;
+
+  useEffect(() => {
+    if (isEditingDueDate) {
+      dueDateInputRef.current?.focus();
+    } else if (shouldRestoreDueDateFocusRef.current) {
+      shouldRestoreDueDateFocusRef.current = false;
+      dueDateTriggerRef.current?.focus();
+    }
+  }, [isEditingDueDate]);
+
+  function closeDueDateEditor() {
+    if (updatingRef.current) {
+      return;
+    }
+
+    setDueDateDraft(task.dueDate ?? "");
+    setFeedback(undefined);
+    shouldRestoreDueDateFocusRef.current = true;
+    setIsEditingDueDate(false);
+  }
+
+  async function updateDueDate(dueDate: string | null) {
+    if (updatingRef.current || onSetTaskDueDate === undefined) {
+      return;
+    }
+
+    updatingRef.current = true;
+    setPendingAction("due-date");
+    setFeedback(undefined);
+
+    try {
+      await onSetTaskDueDate({ taskId: task.id, dueDate });
+      shouldRestoreDueDateFocusRef.current = true;
+      setIsEditingDueDate(false);
+      setFeedback({
+        kind: "success",
+        message: dueDate === null ? "Due date cleared." : "Due date updated.",
+      });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getSetTaskDueDateErrorMessage(error),
+      });
+    } finally {
+      updatingRef.current = false;
+      setPendingAction(undefined);
+    }
+  }
+
+  function submitDueDate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (dueDateDraft.length > 0) {
+      void updateDueDate(dueDateDraft);
+    }
+  }
 
   async function toggleStatus() {
     if (updatingRef.current || onSetTaskStatus === undefined) {
@@ -122,7 +200,7 @@ const TaskRow = memo(function TaskRow({
 
     const status = isCompleted ? "open" : "completed";
     updatingRef.current = true;
-    setIsUpdating(true);
+    setPendingAction("status");
     setFeedback(undefined);
 
     try {
@@ -138,7 +216,7 @@ const TaskRow = memo(function TaskRow({
       });
     } finally {
       updatingRef.current = false;
-      setIsUpdating(false);
+      setPendingAction(undefined);
     }
   }
 
@@ -160,7 +238,7 @@ const TaskRow = memo(function TaskRow({
           type="button"
         />
       )}
-      <div className="min-w-0">
+      <div className="task-row-content min-w-0">
         <p
           className={
             task.status === "completed"
@@ -172,15 +250,94 @@ const TaskRow = memo(function TaskRow({
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-[var(--text-muted)]">
           <span>{category?.name ?? "Unknown category"}</span>
-          {task.dueDate === null ? null : (
-            <span
-              className={isOverdue ? "text-[var(--status-danger)]" : undefined}
+          {onSetTaskDueDate === undefined ? (
+            task.dueDate === null ? null : (
+              <span
+                className={
+                  isOverdue ? "text-[var(--status-danger)]" : undefined
+                }
+              >
+                Due {task.dueDate}
+              </span>
+            )
+          ) : (
+            <button
+              aria-expanded={isEditingDueDate}
+              aria-label={`Edit due date for task: ${task.title}`}
+              className={
+                isOverdue
+                  ? "task-due-date-trigger task-due-date-trigger-status-danger"
+                  : "task-due-date-trigger"
+              }
+              disabled={isUpdating}
+              onClick={() => {
+                setDueDateDraft(task.dueDate ?? "");
+                setFeedback(undefined);
+                setIsEditingDueDate(true);
+              }}
+              ref={dueDateTriggerRef}
+              title="Edit due date"
+              type="button"
             >
-              Due {task.dueDate}
-            </span>
+              {task.dueDate === null ? "Add due date" : `Due ${task.dueDate}`}
+            </button>
           )}
           {isOverdue ? <span className="overdue-label">Overdue</span> : null}
         </div>
+        {isEditingDueDate ? (
+          <form
+            aria-label={`Edit due date for task: ${task.title}`}
+            className="task-due-date-form"
+            onSubmit={submitDueDate}
+          >
+            <label className="sr-only" htmlFor={`task-due-date-${task.id}`}>
+              Due date for {task.title}
+            </label>
+            <input
+              className="task-due-date-input"
+              disabled={isUpdating}
+              id={`task-due-date-${task.id}`}
+              onChange={(event) => {
+                setDueDateDraft(event.target.value);
+                if (feedback?.kind === "error") {
+                  setFeedback(undefined);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeDueDateEditor();
+                }
+              }}
+              ref={dueDateInputRef}
+              type="date"
+              value={dueDateDraft}
+            />
+            <button
+              className="task-due-date-save"
+              disabled={isUpdating || dueDateDraft.length === 0}
+              type="submit"
+            >
+              {pendingAction === "due-date" ? "Saving..." : "Save"}
+            </button>
+            <button
+              className="task-due-date-clear"
+              disabled={isUpdating || task.dueDate === null}
+              onClick={() => void updateDueDate(null)}
+              type="button"
+            >
+              Clear
+            </button>
+            <button
+              className="task-due-date-cancel"
+              disabled={isUpdating}
+              onClick={closeDueDateEditor}
+              type="button"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : null}
         {feedback === undefined ? null : (
           <p
             className={
@@ -557,6 +714,7 @@ export function TaskWorkspace({
   data,
   onCreateCategory,
   onCreateTask,
+  onSetTaskDueDate,
   onSetTaskStatus,
 }: {
   readonly data: TaskWorkspaceData;
@@ -564,10 +722,16 @@ export function TaskWorkspace({
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
   const [selectedViewId, setSelectedViewId] = useState(ALL_TASKS);
+  const [viewHeadingFocusVersion, setViewHeadingFocusVersion] = useState(0);
   const today = useLocalCalendarDate();
+  const viewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const pendingViewHeadingFocusRef = useRef<
+    { readonly taskId: string; readonly viewId: string } | undefined
+  >(undefined);
   const categoryById = useMemo(
     () => new Map(data.categories.map((category) => [category.id, category])),
     [data.categories],
@@ -598,6 +762,40 @@ export function TaskWorkspace({
 
     return data.tasks.filter((task) => task.categoryId === effectiveViewId);
   }, [data.tasks, effectiveViewId, today]);
+  const setTaskDueDateForCurrentView = useMemo(() => {
+    if (onSetTaskDueDate === undefined) {
+      return undefined;
+    }
+
+    return async (input: SetTaskDueDateInput) => {
+      const updatedTask = await onSetTaskDueDate(input);
+      if (effectiveViewId === TODAY_TASKS && updatedTask.dueDate !== today) {
+        pendingViewHeadingFocusRef.current = {
+          taskId: updatedTask.id,
+          viewId: effectiveViewId,
+        };
+        setViewHeadingFocusVersion((version) => version + 1);
+      }
+      return updatedTask;
+    };
+  }, [effectiveViewId, onSetTaskDueDate, today]);
+
+  useEffect(() => {
+    const pendingFocus = pendingViewHeadingFocusRef.current;
+    if (pendingFocus === undefined) {
+      return;
+    }
+
+    if (pendingFocus.viewId !== effectiveViewId) {
+      pendingViewHeadingFocusRef.current = undefined;
+      return;
+    }
+
+    if (!visibleTasks.some((task) => task.id === pendingFocus.taskId)) {
+      pendingViewHeadingFocusRef.current = undefined;
+      viewHeadingRef.current?.focus();
+    }
+  }, [effectiveViewId, viewHeadingFocusVersion, visibleTasks]);
   const activeCategory =
     effectiveViewId === ALL_TASKS ||
     effectiveViewId === COMPLETED_TASKS ||
@@ -697,7 +895,13 @@ export function TaskWorkspace({
 
       <div className="grid min-h-0 grid-rows-[auto_auto_1fr] bg-[var(--surface-raised)]">
         <header className="border-b border-[var(--border-subtle)] px-4 py-3">
-          <h2 className="truncate text-sm font-semibold">{viewTitle}</h2>
+          <h2
+            className="truncate text-sm font-semibold"
+            ref={viewHeadingRef}
+            tabIndex={-1}
+          >
+            {viewTitle}
+          </h2>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
             {visibleTasks.length} {visibleTasks.length === 1 ? "task" : "tasks"}
           </p>
@@ -723,6 +927,7 @@ export function TaskWorkspace({
                     task.dueDate < today
                   }
                   key={task.id}
+                  onSetTaskDueDate={setTaskDueDateForCurrentView}
                   onSetTaskStatus={onSetTaskStatus}
                   task={task}
                 />

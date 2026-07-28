@@ -68,6 +68,10 @@ button {
   border-right: 1px solid var(--border-subtle);
 }
 
+.task-row-content {
+  container-type: inline-size;
+}
+
 .nav-item {
   display: grid;
   width: 100%;
@@ -255,6 +259,96 @@ button {
 .task-status-button:disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.task-due-date-trigger {
+  min-height: 1.25rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentcolor 45%, transparent);
+  text-underline-offset: 0.125rem;
+  cursor: pointer;
+}
+
+.task-due-date-trigger:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.task-due-date-trigger-status-danger,
+.task-due-date-trigger-status-danger:hover:not(:disabled) {
+  color: var(--status-danger);
+}
+
+.task-due-date-trigger:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.task-due-date-form {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 1fr) repeat(3, auto);
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.task-due-date-input,
+.task-due-date-save,
+.task-due-date-clear,
+.task-due-date-cancel {
+  min-width: 0;
+  min-height: 1.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  font-size: 0.6875rem;
+}
+
+.task-due-date-input {
+  background: var(--surface-raised);
+  padding: 0.25rem 0.375rem;
+  color: var(--text-primary);
+}
+
+.task-due-date-save,
+.task-due-date-clear,
+.task-due-date-cancel {
+  background: var(--surface-raised);
+  padding: 0.25rem 0.5rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-due-date-save {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--text-on-accent);
+}
+
+.task-due-date-input:disabled,
+.task-due-date-save:disabled,
+.task-due-date-clear:disabled,
+.task-due-date-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+@container (max-width: 17rem) {
+  .task-due-date-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .task-due-date-input {
+    grid-column: 1 / -1;
+  }
+
+  .task-due-date-save,
+  .task-due-date-clear,
+  .task-due-date-cancel {
+    padding-inline: 0.25rem;
+  }
 }
 
 .quick-task-input,
