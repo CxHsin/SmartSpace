@@ -11,6 +11,7 @@ import {
   type CategoryDto,
   type CreateCategoryInput,
   type CreateTaskInput,
+  type MoveTaskInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type TaskDto,
@@ -111,32 +112,70 @@ function getSetTaskDueDateErrorMessage(error: unknown) {
   return "Due date could not be updated. Try again.";
 }
 
+function getMoveTaskErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "task_not_found") {
+      return "This task is no longer available.";
+    }
+
+    if (error.code === "category_not_found") {
+      return "That category is no longer available.";
+    }
+
+    if (error.code === "invalid_input") {
+      return "Task could not be moved.";
+    }
+  }
+
+  return "Task could not be moved. Try again.";
+}
+
 const TaskRow = memo(function TaskRow({
+  categories,
   category,
   isOverdue,
+  onMoveTask,
   onSetTaskDueDate,
   onSetTaskStatus,
   task,
 }: {
+  readonly categories: readonly CategoryDto[];
   readonly category: CategoryDto | undefined;
   readonly isOverdue: boolean;
+  readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly task: TaskDto;
 }) {
-  const [pendingAction, setPendingAction] = useState<"due-date" | "status">();
+  const [pendingAction, setPendingAction] = useState<
+    "category" | "due-date" | "status"
+  >();
   const [feedback, setFeedback] = useState<TaskFeedback>();
+  const [isEditingCategory, setIsEditingCategory] = useState(false);
   const [isEditingDueDate, setIsEditingDueDate] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState(task.categoryId);
   const [dueDateDraft, setDueDateDraft] = useState(task.dueDate ?? "");
   const updatingRef = useRef(false);
+  const categorySelectRef = useRef<HTMLSelectElement>(null);
+  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const dueDateInputRef = useRef<HTMLInputElement>(null);
   const dueDateTriggerRef = useRef<HTMLButtonElement>(null);
+  const shouldRestoreCategoryFocusRef = useRef(false);
   const shouldRestoreDueDateFocusRef = useRef(false);
   const isCompleted = task.status === "completed";
   const isUpdating = pendingAction !== undefined;
   const actionLabel = isCompleted
     ? `Reopen task: ${task.title}`
     : `Complete task: ${task.title}`;
+
+  useEffect(() => {
+    if (isEditingCategory) {
+      categorySelectRef.current?.focus();
+    } else if (shouldRestoreCategoryFocusRef.current) {
+      shouldRestoreCategoryFocusRef.current = false;
+      categoryTriggerRef.current?.focus();
+    }
+  }, [isEditingCategory]);
 
   useEffect(() => {
     if (isEditingDueDate) {
@@ -146,6 +185,56 @@ const TaskRow = memo(function TaskRow({
       dueDateTriggerRef.current?.focus();
     }
   }, [isEditingDueDate]);
+
+  function closeCategoryEditor() {
+    if (updatingRef.current) {
+      return;
+    }
+
+    setCategoryDraft(task.categoryId);
+    setFeedback(undefined);
+    shouldRestoreCategoryFocusRef.current = true;
+    setIsEditingCategory(false);
+  }
+
+  async function updateCategory(categoryId: string) {
+    if (updatingRef.current || onMoveTask === undefined) {
+      return;
+    }
+
+    updatingRef.current = true;
+    setPendingAction("category");
+    setFeedback(undefined);
+
+    try {
+      const updatedTask = await onMoveTask({ taskId: task.id, categoryId });
+      const targetCategory = categories.find(
+        (candidate) => candidate.id === updatedTask.categoryId,
+      );
+      setCategoryDraft(updatedTask.categoryId);
+      shouldRestoreCategoryFocusRef.current = true;
+      setIsEditingCategory(false);
+      setFeedback({
+        kind: "success",
+        message: `Task moved to ${targetCategory?.name ?? "another category"}.`,
+      });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getMoveTaskErrorMessage(error),
+      });
+    } finally {
+      updatingRef.current = false;
+      setPendingAction(undefined);
+    }
+  }
+
+  function submitCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (categoryDraft !== task.categoryId) {
+      void updateCategory(categoryDraft);
+    }
+  }
 
   function closeDueDateEditor() {
     if (updatingRef.current) {
@@ -249,7 +338,29 @@ const TaskRow = memo(function TaskRow({
           {task.title}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-[var(--text-muted)]">
-          <span>{category?.name ?? "Unknown category"}</span>
+          {onMoveTask === undefined ||
+          category === undefined ||
+          categories.length < 2 ? (
+            <span>{category?.name ?? "Unknown category"}</span>
+          ) : (
+            <button
+              aria-expanded={isEditingCategory}
+              aria-label={`Edit category for task: ${task.title}`}
+              className="task-category-trigger"
+              disabled={isUpdating}
+              onClick={() => {
+                setCategoryDraft(task.categoryId);
+                setFeedback(undefined);
+                setIsEditingDueDate(false);
+                setIsEditingCategory(true);
+              }}
+              ref={categoryTriggerRef}
+              title="Move task"
+              type="button"
+            >
+              {category.name}
+            </button>
+          )}
           {onSetTaskDueDate === undefined ? (
             task.dueDate === null ? null : (
               <span
@@ -273,6 +384,7 @@ const TaskRow = memo(function TaskRow({
               onClick={() => {
                 setDueDateDraft(task.dueDate ?? "");
                 setFeedback(undefined);
+                setIsEditingCategory(false);
                 setIsEditingDueDate(true);
               }}
               ref={dueDateTriggerRef}
@@ -284,6 +396,59 @@ const TaskRow = memo(function TaskRow({
           )}
           {isOverdue ? <span className="overdue-label">Overdue</span> : null}
         </div>
+        {isEditingCategory ? (
+          <form
+            aria-label={`Edit category for task: ${task.title}`}
+            className="task-category-form"
+            onSubmit={submitCategory}
+          >
+            <label className="sr-only" htmlFor={`task-category-${task.id}`}>
+              Category for {task.title}
+            </label>
+            <select
+              className="task-category-select"
+              disabled={isUpdating}
+              id={`task-category-${task.id}`}
+              onChange={(event) => {
+                setCategoryDraft(event.target.value);
+                if (feedback?.kind === "error") {
+                  setFeedback(undefined);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeCategoryEditor();
+                }
+              }}
+              ref={categorySelectRef}
+              value={categoryDraft}
+            >
+              {categories.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </select>
+            <button
+              aria-label={`Move task: ${task.title}`}
+              className="task-category-save"
+              disabled={isUpdating || categoryDraft === task.categoryId}
+              type="submit"
+            >
+              {pendingAction === "category" ? "Moving..." : "Move"}
+            </button>
+            <button
+              aria-label={`Cancel category edit for task: ${task.title}`}
+              className="task-category-cancel"
+              disabled={isUpdating}
+              onClick={closeCategoryEditor}
+              type="button"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : null}
         {isEditingDueDate ? (
           <form
             aria-label={`Edit due date for task: ${task.title}`}
@@ -342,8 +507,8 @@ const TaskRow = memo(function TaskRow({
           <p
             className={
               feedback.kind === "error"
-                ? "mt-1.5 text-[0.6875rem] text-[var(--status-danger)]"
-                : "mt-1.5 text-[0.6875rem] text-[var(--status-success)]"
+                ? "task-feedback mt-1.5 text-[0.6875rem] text-[var(--status-danger)]"
+                : "task-feedback mt-1.5 text-[0.6875rem] text-[var(--status-success)]"
             }
             role={feedback.kind === "error" ? "alert" : "status"}
           >
@@ -714,6 +879,7 @@ export function TaskWorkspace({
   data,
   onCreateCategory,
   onCreateTask,
+  onMoveTask,
   onSetTaskDueDate,
   onSetTaskStatus,
 }: {
@@ -722,6 +888,7 @@ export function TaskWorkspace({
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
@@ -779,6 +946,28 @@ export function TaskWorkspace({
       return updatedTask;
     };
   }, [effectiveViewId, onSetTaskDueDate, today]);
+  const moveTaskForCurrentView = useMemo(() => {
+    if (onMoveTask === undefined) {
+      return undefined;
+    }
+
+    return async (input: MoveTaskInput) => {
+      const updatedTask = await onMoveTask(input);
+      if (
+        effectiveViewId !== ALL_TASKS &&
+        effectiveViewId !== COMPLETED_TASKS &&
+        effectiveViewId !== TODAY_TASKS &&
+        updatedTask.categoryId !== effectiveViewId
+      ) {
+        pendingViewHeadingFocusRef.current = {
+          taskId: updatedTask.id,
+          viewId: effectiveViewId,
+        };
+        setViewHeadingFocusVersion((version) => version + 1);
+      }
+      return updatedTask;
+    };
+  }, [effectiveViewId, onMoveTask]);
 
   useEffect(() => {
     const pendingFocus = pendingViewHeadingFocusRef.current;
@@ -920,6 +1109,7 @@ export function TaskWorkspace({
             <ul aria-label="Task list">
               {visibleTasks.map((task) => (
                 <TaskRow
+                  categories={data.categories}
                   category={categoryById.get(task.categoryId)}
                   isOverdue={
                     task.status === "open" &&
@@ -927,6 +1117,7 @@ export function TaskWorkspace({
                     task.dueDate < today
                   }
                   key={task.id}
+                  onMoveTask={moveTaskForCurrentView}
                   onSetTaskDueDate={setTaskDueDateForCurrentView}
                   onSetTaskStatus={onSetTaskStatus}
                   task={task}

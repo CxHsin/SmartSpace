@@ -72,6 +72,10 @@ button {
   container-type: inline-size;
 }
 
+.task-feedback {
+  overflow-wrap: anywhere;
+}
+
 .nav-item {
   display: grid;
   width: 100%;
@@ -261,6 +265,7 @@ button {
   opacity: 0.58;
 }
 
+.task-category-trigger,
 .task-due-date-trigger {
   min-height: 1.25rem;
   border: 0;
@@ -273,6 +278,13 @@ button {
   cursor: pointer;
 }
 
+.task-category-trigger {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.task-category-trigger:hover:not(:disabled),
 .task-due-date-trigger:hover:not(:disabled) {
   color: var(--text-primary);
 }
@@ -282,6 +294,7 @@ button {
   color: var(--status-danger);
 }
 
+.task-category-trigger:disabled,
 .task-due-date-trigger:disabled {
   cursor: wait;
   opacity: 0.58;
@@ -292,6 +305,51 @@ button {
   grid-template-columns: minmax(7.5rem, 1fr) repeat(3, auto);
   gap: 0.375rem;
   margin-top: 0.5rem;
+}
+
+.task-category-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.task-category-select,
+.task-category-save,
+.task-category-cancel {
+  min-width: 0;
+  min-height: 1.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  font-size: 0.6875rem;
+}
+
+.task-category-select {
+  background: var(--surface-raised);
+  padding: 0.25rem 1.25rem 0.25rem 0.375rem;
+  color: var(--text-primary);
+}
+
+.task-category-save,
+.task-category-cancel {
+  background: var(--surface-raised);
+  padding: 0.25rem 0.5rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-category-save {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--text-on-accent);
+}
+
+.task-category-select:disabled,
+.task-category-save:disabled,
+.task-category-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .task-due-date-input,
@@ -336,6 +394,19 @@ button {
 }
 
 @container (max-width: 17rem) {
+  .task-category-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-category-select {
+    grid-column: 1 / -1;
+  }
+
+  .task-category-save,
+  .task-category-cancel {
+    padding-inline: 0.25rem;
+  }
+
   .task-due-date-form {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

@@ -11,6 +11,7 @@ import {
   type CategoryDto,
   type CreateCategoryInput,
   type CreateTaskInput,
+  type MoveTaskInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type SmartSpaceClient,
@@ -57,19 +58,76 @@ function insertTaskInStorageOrder(
   data: TaskWorkspaceData,
   createdTask: TaskDto,
 ): TaskWorkspaceData {
+  return {
+    ...data,
+    tasks: sortTasksInStorageOrder(data.categories, [
+      ...data.tasks,
+      createdTask,
+    ]),
+  };
+}
+
+function sortTasksInStorageOrder(
+  categories: readonly CategoryDto[],
+  tasks: readonly TaskDto[],
+) {
   const categoryPositions = new Map(
-    data.categories.map((category) => [category.id, category.position]),
+    categories.map((category) => [category.id, category.position]),
   );
-  const tasks = [...data.tasks, createdTask];
-  tasks.sort((left, right) => {
+  return [...tasks].sort((left, right) => {
     const categoryDifference =
       (categoryPositions.get(left.categoryId) ?? Number.MAX_SAFE_INTEGER) -
       (categoryPositions.get(right.categoryId) ?? Number.MAX_SAFE_INTEGER);
 
     return categoryDifference || left.position - right.position;
   });
+}
 
-  return { ...data, tasks };
+function moveTaskInStorageOrder(
+  data: TaskWorkspaceData,
+  taskId: string,
+  updatedTask: TaskDto,
+): TaskWorkspaceData {
+  const existingTask = data.tasks.find((task) => task.id === taskId);
+  if (existingTask === undefined) {
+    return data;
+  }
+
+  if (existingTask.categoryId === updatedTask.categoryId) {
+    return replaceTask(data, taskId, updatedTask);
+  }
+
+  const remainingTasks = data.tasks.filter((task) => task.id !== taskId);
+  const sourceTasks = remainingTasks
+    .filter((task) => task.categoryId === existingTask.categoryId)
+    .map((task, position) =>
+      task.position === position ? task : { ...task, position },
+    );
+  const targetTasks = remainingTasks.filter(
+    (task) => task.categoryId === updatedTask.categoryId,
+  );
+  const targetPosition = Math.max(
+    0,
+    Math.min(updatedTask.position, targetTasks.length),
+  );
+  targetTasks.splice(targetPosition, 0, updatedTask);
+  const positionedTargetTasks = targetTasks.map((task, position) =>
+    task.position === position ? task : { ...task, position },
+  );
+  const unaffectedTasks = remainingTasks.filter(
+    (task) =>
+      task.categoryId !== existingTask.categoryId &&
+      task.categoryId !== updatedTask.categoryId,
+  );
+
+  return {
+    ...data,
+    tasks: sortTasksInStorageOrder(data.categories, [
+      ...unaffectedTasks,
+      ...sourceTasks,
+      ...positionedTargetTasks,
+    ]),
+  };
 }
 
 function insertCategoryInStorageOrder(
@@ -184,6 +242,7 @@ export function WorkspaceBody({
   onRetry,
   onCreateCategory,
   onCreateTask,
+  onMoveTask,
   onSetTaskDueDate,
   onSetTaskStatus,
   loadingRegionRef,
@@ -194,6 +253,7 @@ export function WorkspaceBody({
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
+  readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
@@ -211,6 +271,7 @@ export function WorkspaceBody({
           data={workspace.data}
           onCreateCategory={onCreateCategory}
           onCreateTask={onCreateTask}
+          onMoveTask={onMoveTask}
           onSetTaskDueDate={onSetTaskDueDate}
           onSetTaskStatus={onSetTaskStatus}
         />
@@ -226,6 +287,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     status: "loading",
   });
   const loadingRegionRef = useRef<HTMLElement>(null);
+  const moveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const shouldFocusLoading = useRef(false);
 
   useEffect(() => {
@@ -323,6 +385,33 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     [client],
   );
 
+  const moveTask = useCallback(
+    (input: MoveTaskInput) => {
+      const operation = moveQueueRef.current.then(async () => {
+        const updatedTask = await client.moveTask(input);
+        setWorkspace((current) =>
+          current.status === "ready"
+            ? {
+                status: "ready",
+                data: moveTaskInStorageOrder(
+                  current.data,
+                  input.taskId,
+                  updatedTask,
+                ),
+              }
+            : current,
+        );
+        return updatedTask;
+      });
+      moveQueueRef.current = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      return operation;
+    },
+    [client],
+  );
+
   return (
     <main className="grid h-screen min-h-0 grid-rows-[3.25rem_minmax(0,1fr)] overflow-hidden bg-[var(--surface-canvas)] text-[var(--text-primary)]">
       <header className="flex items-center justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-raised)] px-4">
@@ -342,6 +431,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
         loadingRegionRef={loadingRegionRef}
         onCreateCategory={createCategory}
         onCreateTask={createTask}
+        onMoveTask={moveTask}
         onSetTaskDueDate={setTaskDueDate}
         onSetTaskStatus={setTaskStatus}
         onRetry={() => {

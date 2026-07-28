@@ -108,6 +108,7 @@ function createClient(
   setTaskStatus: SmartSpaceClient["setTaskStatus"] = unexpectedSetTaskStatus,
   createCategory: SmartSpaceClient["createCategory"] = unexpectedCreateCategory,
   setTaskDueDate: SmartSpaceClient["setTaskDueDate"] = unexpectedSetTaskDueDate,
+  moveTask: SmartSpaceClient["moveTask"] = unexpectedMoveTask,
 ): SmartSpaceClient {
   return {
     listCategories: vi.fn(async () => categories),
@@ -116,7 +117,7 @@ function createClient(
     setTaskStatus,
     renameTask: unexpectedRenameTask,
     setTaskDueDate,
-    moveTask: unexpectedMoveTask,
+    moveTask,
     reorderTasks: unexpectedReorderTasks,
     deleteTask: unexpectedDeleteTask,
     createCategory,
@@ -1600,5 +1601,555 @@ describe("App task workspace lifecycle", () => {
         name: "Edit due date for task: Current due date task",
       }).textContent,
     ).toBe("Add due date");
+  });
+
+  it("moves a task once and rebuilds counts and storage order", async () => {
+    const pendingMove = createDeferred<TaskDto>();
+    const inboxTask = createTask(
+      "10000000-0000-0000-0000-000000000031",
+      "Inbox before moved task",
+      inboxId,
+    );
+    const taskToMove = createTask(
+      "10000000-0000-0000-0000-000000000032",
+      "Move between categories",
+      workId,
+    );
+    const personalTask = createTask(
+      "10000000-0000-0000-0000-000000000033",
+      "Personal before moved task",
+      personalId,
+    );
+    const movedTask: TaskDto = {
+      ...taskToMove,
+      categoryId: personalId,
+      position: 1,
+      updatedAt: "2026-07-28T12:00:00.000000001Z",
+    };
+    const moveTask = vi.fn(() => pendingMove.promise);
+    render(
+      createElement(App, {
+        client: createClient(
+          [inboxTask, taskToMove, personalTask],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          moveTask,
+        ),
+      }),
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Edit category for task: Move between categories",
+    });
+    expect(trigger.textContent).toBe("Work");
+    fireEvent.click(trigger);
+    const select = screen.getByLabelText(
+      "Category for Move between categories",
+    ) as HTMLSelectElement;
+    expect(select.value).toBe(workId);
+    expect(document.activeElement).toBe(select);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move task: Move between categories",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.change(select, { target: { value: personalId } });
+    const form = screen.getByRole("form", {
+      name: "Edit category for task: Move between categories",
+    });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      expect(moveTask).toHaveBeenCalledTimes(1);
+    });
+    expect(moveTask).toHaveBeenCalledWith({
+      taskId: taskToMove.id,
+      categoryId: personalId,
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move task: Move between categories",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Updating task: Move between categories",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Edit due date for task: Move between categories",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      pendingMove.resolve(movedTask);
+      await pendingMove.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Task moved to Personal.",
+    );
+    const movedTrigger = screen.getByRole("button", {
+      name: "Edit category for task: Move between categories",
+    });
+    expect(movedTrigger.textContent).toBe("Personal");
+    expect(document.activeElement).toBe(movedTrigger);
+    expect(screen.getByRole("button", { name: "Work 0" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Personal 2" })).not.toBeNull();
+    const listText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(listText?.indexOf("Inbox before moved task")).toBeLessThan(
+      listText?.indexOf("Personal before moved task") ?? -1,
+    );
+    expect(listText?.indexOf("Personal before moved task")).toBeLessThan(
+      listText?.indexOf("Move between categories") ?? -1,
+    );
+  });
+
+  it("keeps persisted order after consecutive cross-category moves", async () => {
+    const inboxTask = createTask(
+      "10000000-0000-0000-0000-000000000039",
+      "Move from inbox second",
+      inboxId,
+    );
+    const workFirst = createTask(
+      "10000000-0000-0000-0000-000000000040",
+      "Work first",
+      workId,
+      0,
+    );
+    const workMiddle = createTask(
+      "10000000-0000-0000-0000-000000000041",
+      "Move work middle first",
+      workId,
+      1,
+    );
+    const workLast = createTask(
+      "10000000-0000-0000-0000-000000000042",
+      "Work last",
+      workId,
+      2,
+    );
+    const moveTask = vi
+      .fn<SmartSpaceClient["moveTask"]>()
+      .mockResolvedValueOnce({
+        ...workMiddle,
+        categoryId: personalId,
+        position: 0,
+      })
+      .mockResolvedValueOnce({
+        ...inboxTask,
+        categoryId: workId,
+        position: 2,
+      });
+    render(
+      createElement(App, {
+        client: createClient(
+          [inboxTask, workFirst, workMiddle, workLast],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          moveTask,
+        ),
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit category for task: Move work middle first",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Category for Move work middle first"),
+      { target: { value: personalId } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Move task: Move work middle first",
+      }),
+    );
+    await screen.findByText("Task moved to Personal.");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit category for task: Move from inbox second",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Category for Move from inbox second"),
+      { target: { value: workId } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Move task: Move from inbox second",
+      }),
+    );
+    await screen.findByText("Task moved to Work.");
+
+    expect(moveTask).toHaveBeenCalledTimes(2);
+    const listText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(listText?.indexOf("Work first")).toBeLessThan(
+      listText?.indexOf("Work last") ?? -1,
+    );
+    expect(listText?.indexOf("Work last")).toBeLessThan(
+      listText?.indexOf("Move from inbox second") ?? -1,
+    );
+    expect(listText?.indexOf("Move from inbox second")).toBeLessThan(
+      listText?.indexOf("Move work middle first") ?? -1,
+    );
+  });
+
+  it("serializes moves across task rows to preserve commit order", async () => {
+    const firstMove = createDeferred<TaskDto>();
+    const secondMove = createDeferred<TaskDto>();
+    const workFirst = createTask(
+      "10000000-0000-0000-0000-000000000043",
+      "Move out first",
+      workId,
+      0,
+    );
+    const workSecond = createTask(
+      "10000000-0000-0000-0000-000000000044",
+      "Work remains first",
+      workId,
+      1,
+    );
+    const workThird = createTask(
+      "10000000-0000-0000-0000-000000000045",
+      "Work remains second",
+      workId,
+      2,
+    );
+    const personalTask = createTask(
+      "10000000-0000-0000-0000-000000000046",
+      "Move in second",
+      personalId,
+      0,
+    );
+    const moveTask = vi
+      .fn<SmartSpaceClient["moveTask"]>()
+      .mockImplementationOnce(() => firstMove.promise)
+      .mockImplementationOnce(() => secondMove.promise);
+    render(
+      createElement(App, {
+        client: createClient(
+          [workFirst, workSecond, workThird, personalTask],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          moveTask,
+        ),
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit category for task: Move out first",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Category for Move out first"), {
+      target: { value: personalId },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move task: Move out first" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit category for task: Move in second",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Category for Move in second"), {
+      target: { value: workId },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move task: Move in second" }),
+    );
+
+    await waitFor(() => {
+      expect(moveTask).toHaveBeenCalledTimes(1);
+    });
+    expect(moveTask).toHaveBeenNthCalledWith(1, {
+      taskId: workFirst.id,
+      categoryId: personalId,
+    });
+
+    await act(async () => {
+      firstMove.resolve({
+        ...workFirst,
+        categoryId: personalId,
+        position: 1,
+      });
+      await firstMove.promise;
+    });
+    await waitFor(() => {
+      expect(moveTask).toHaveBeenCalledTimes(2);
+    });
+    expect(moveTask).toHaveBeenNthCalledWith(2, {
+      taskId: personalTask.id,
+      categoryId: workId,
+    });
+
+    await act(async () => {
+      secondMove.resolve({
+        ...personalTask,
+        categoryId: workId,
+        position: 2,
+      });
+      await secondMove.promise;
+    });
+
+    await screen.findByText("Task moved to Work.");
+    const listText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(listText?.indexOf("Work remains first")).toBeLessThan(
+      listText?.indexOf("Work remains second") ?? -1,
+    );
+    expect(listText?.indexOf("Work remains second")).toBeLessThan(
+      listText?.indexOf("Move in second") ?? -1,
+    );
+    expect(listText?.indexOf("Move in second")).toBeLessThan(
+      listText?.indexOf("Move out first") ?? -1,
+    );
+  });
+
+  it("cancels a category draft with Escape and restores focus", async () => {
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000034",
+      "Keep original category",
+      workId,
+    );
+    const moveTask = vi.fn<SmartSpaceClient["moveTask"]>();
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          moveTask,
+        ),
+      }),
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Edit category for task: Keep original category",
+    });
+    fireEvent.click(trigger);
+    const select = screen.getByLabelText("Category for Keep original category");
+    fireEvent.change(select, { target: { value: personalId } });
+    fireEvent.keyDown(select, { key: "Escape" });
+
+    expect(
+      screen.queryByLabelText("Category for Keep original category"),
+    ).toBeNull();
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    expect(
+      (
+        screen.getByLabelText(
+          "Category for Keep original category",
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe(workId);
+  });
+
+  it.each([
+    [
+      "invalid input",
+      new SmartSpaceCommandError("invalid_input", "invalid move"),
+      "Task could not be moved.",
+    ],
+    [
+      "missing task",
+      new SmartSpaceCommandError("task_not_found", "missing task"),
+      "This task is no longer available.",
+    ],
+    [
+      "missing category",
+      new SmartSpaceCommandError("category_not_found", "missing category"),
+      "That category is no longer available.",
+    ],
+    [
+      "unknown failure",
+      new Error("offline"),
+      "Task could not be moved. Try again.",
+    ],
+  ])(
+    "retains the category selection after %s",
+    async (_case, error, message) => {
+      const task = createTask(
+        "10000000-0000-0000-0000-000000000035",
+        "Retry category move",
+        workId,
+      );
+      const moveTask = vi.fn(async () => {
+        throw error;
+      });
+      render(
+        createElement(App, {
+          client: createClient(
+            [task],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            moveTask,
+          ),
+        }),
+      );
+
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Edit category for task: Retry category move",
+        }),
+      );
+      const select = screen.getByLabelText("Category for Retry category move");
+      fireEvent.change(select, { target: { value: personalId } });
+      fireEvent.submit(
+        screen.getByRole("form", {
+          name: "Edit category for task: Retry category move",
+        }),
+      );
+
+      expect((await screen.findByRole("alert")).textContent).toContain(message);
+      expect((select as HTMLSelectElement).value).toBe(personalId);
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Move task: Retry category move",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    },
+  );
+
+  it("focuses the category heading when a moved task leaves its view", async () => {
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000036",
+      "Leave category after moving",
+      workId,
+    );
+    const moveTask = vi
+      .fn<SmartSpaceClient["moveTask"]>()
+      .mockResolvedValue({ ...task, categoryId: personalId, position: 0 });
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          moveTask,
+        ),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Work 1" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit category for task: Leave category after moving",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Category for Leave category after moving"),
+      { target: { value: personalId } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Move task: Leave category after moving",
+      }),
+    );
+
+    expect(await screen.findByText("No tasks in this category")).not.toBeNull();
+    expect(moveTask).toHaveBeenCalledWith({
+      taskId: task.id,
+      categoryId: personalId,
+    });
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Work", level: 2 }),
+    );
+    expect(screen.getByRole("button", { name: "Work 0" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Personal 1" })).not.toBeNull();
+  });
+
+  it("ignores a pending move result after the client session changes", async () => {
+    const pendingMove = createDeferred<TaskDto>();
+    const staleTask = createTask(
+      "10000000-0000-0000-0000-000000000037",
+      "Stale category move",
+      workId,
+    );
+    const staleMoveTask = vi.fn(() => pendingMove.promise);
+    const staleClient = createClient(
+      [staleTask],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      staleMoveTask,
+    );
+    const currentTask = createTask(
+      "10000000-0000-0000-0000-000000000038",
+      "Current category session",
+      inboxId,
+    );
+    const currentClient = createClient([currentTask]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit category for task: Stale category move",
+      }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Category for Stale category move"),
+      {
+        target: { value: personalId },
+      },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move task: Stale category move" }),
+    );
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current category session")).not.toBeNull();
+
+    await act(async () => {
+      pendingMove.resolve({
+        ...staleTask,
+        categoryId: personalId,
+        position: 0,
+      });
+      await pendingMove.promise;
+    });
+
+    expect(screen.queryByText("Stale category move")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: Current category session",
+      }).textContent,
+    ).toBe("Inbox");
   });
 });
