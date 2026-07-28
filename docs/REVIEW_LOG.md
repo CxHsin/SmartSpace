@@ -254,12 +254,56 @@ No actionable findings.
 
 #### Required Follow-up
 
-- [ ] `WP02-R1` Implementation Agent: clamp and center first-launch bounds within smaller primary work areas and add boundary tests.
-- [ ] `WP02-R2` Implementation Agent: make initial shortcut status delivery race-free and add late-subscriber coverage.
+- [x] `WP02-R1` Implementation Agent: clamp and center first-launch bounds within smaller primary work areas and add boundary tests.
+- [x] `WP02-R2` Implementation Agent: make initial shortcut status delivery race-free and add late-subscriber coverage.
 
 #### Resolution
 
-- Status: Open
-- Resolution commit: `not available`
-- Verified by: `not yet verified`
-- Notes: Both P1 findings must be fixed or explicitly accepted before WP-02 can be approved.
+- Status: Fixed and verified
+- Resolution commit: `b7f71f80f4e54def86f19b008cb456b3f74a06aa`
+- Verified by: `GPT-5.6 Sol review Agent`
+- Notes: Re-review confirmed first-launch size and minimum constraints remain contained in undersized work areas, and the preload buffers validated shortcut status before renderer subscription and replays it to late subscribers. Focused tests, the full test suite, typecheck, build, and Electron startup smoke all passed.
+
+### Re-review 2026-07-28 - WP-02
+
+#### Review Metadata
+
+- Review Agent: `GPT-5.6 Sol review Agent`
+- Implementation commit or range: `208dc56f7ef5a6ac4da4bf21227746b1ce0a3c98..b7f71f80f4e54def86f19b008cb456b3f74a06aa`
+- Handoff reviewed: Yes
+- Review scope: WP-02 review-fix round for `WP02-R1` and `WP02-R2`
+- Outcome: Approved
+
+#### Findings
+
+No actionable findings.
+
+#### Verification
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Diff matches recorded scope | Pass | The single fix commit is limited to the two accepted findings, focused tests, and the implementation handoff; no later work-package behavior or protected requirements document changed. |
+| Relevant automated tests | Pass | `npx.cmd vitest run tests/window-lifecycle.test.ts tests/preload-shortcut-status.test.ts`: 2 files, 11 tests passed. `npm.cmd test`: 5 files, 28 tests passed. |
+| Typecheck/build | Pass | `npm.cmd run typecheck` and `npm.cmd run build` passed. |
+| Electron startup smoke | Pass | `node scripts\smoke-electron.mjs` passed in the coordinator environment against the final production build. |
+| Manual acceptance checks | Not run | Full interactive shortcut-conflict, blur, close, and minimize input was not run. |
+| Security/lifecycle review | Pass | Window size is clamped before centering and minimum constraints relax to the contained dimensions. The preload installs one validated status handler before exposing the API, retains the latest valid status, replays it to late subscribers, and removes individual subscribers without disrupting others. |
+
+#### Open Questions and Assumptions
+
+- None.
+
+#### Residual Risk
+
+- Full interactive desktop behavior and packaged Windows behavior remain unverified. The Electron smoke covers real production main/preload startup and a bridge request, while the two repaired boundary cases are exercised by focused automated tests.
+
+#### Required Follow-up
+
+- None.
+
+#### Resolution
+
+- Status: Fixed and verified
+- Resolution commit: `b7f71f80f4e54def86f19b008cb456b3f74a06aa`
+- Verified by: `GPT-5.6 Sol review Agent`
+- Notes: `WP02-R1` and `WP02-R2` are resolved; WP-02 is approved.
