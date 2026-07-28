@@ -106,6 +106,10 @@ button {
 .nav-item:focus-visible,
 .retry-button:focus-visible,
 .task-status-button:focus-visible,
+.task-title-trigger:focus-visible,
+.task-title-input:focus-visible,
+.task-title-save:focus-visible,
+.task-title-cancel:focus-visible,
 .quick-task-input:focus-visible,
 .quick-task-select:focus-visible,
 .quick-task-submit:focus-visible {
@@ -265,6 +269,82 @@ button {
   opacity: 0.58;
 }
 
+.task-title-trigger {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  cursor: text;
+}
+
+.task-title-trigger:hover:not(:disabled) {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentcolor 45%, transparent);
+  text-underline-offset: 0.125rem;
+}
+
+.task-title-trigger-completed {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.task-title-trigger:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.task-title-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.task-title-input,
+.task-title-save,
+.task-title-cancel {
+  min-width: 0;
+  min-height: 1.875rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  font-size: 0.75rem;
+}
+
+.task-title-input {
+  background: var(--surface-raised);
+  padding: 0.25rem 0.375rem;
+  color: var(--text-primary);
+}
+
+.task-title-save,
+.task-title-cancel {
+  background: var(--surface-raised);
+  padding: 0.25rem 0.5rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-title-save {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--text-on-accent);
+}
+
+.task-title-input:disabled,
+.task-title-save:disabled,
+.task-title-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .task-category-trigger,
 .task-due-date-trigger {
   min-height: 1.25rem;
@@ -394,6 +474,19 @@ button {
 }
 
 @container (max-width: 17rem) {
+  .task-title-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-title-input {
+    grid-column: 1 / -1;
+  }
+
+  .task-title-save,
+  .task-title-cancel {
+    padding-inline: 0.25rem;
+  }
+
   .task-category-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

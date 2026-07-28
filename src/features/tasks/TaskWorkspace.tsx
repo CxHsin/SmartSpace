@@ -12,6 +12,7 @@ import {
   type CreateCategoryInput,
   type CreateTaskInput,
   type MoveTaskInput,
+  type RenameTaskInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type TaskDto,
@@ -130,11 +131,26 @@ function getMoveTaskErrorMessage(error: unknown) {
   return "Task could not be moved. Try again.";
 }
 
+function getRenameTaskErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "task_not_found") {
+      return "This task is no longer available.";
+    }
+
+    if (error.code === "invalid_input") {
+      return "Enter a valid task title.";
+    }
+  }
+
+  return "Task title could not be updated. Try again.";
+}
+
 const TaskRow = memo(function TaskRow({
   categories,
   category,
   isOverdue,
   onMoveTask,
+  onRenameTask,
   onSetTaskDueDate,
   onSetTaskStatus,
   task,
@@ -143,25 +159,31 @@ const TaskRow = memo(function TaskRow({
   readonly category: CategoryDto | undefined;
   readonly isOverdue: boolean;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
+  readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly task: TaskDto;
 }) {
   const [pendingAction, setPendingAction] = useState<
-    "category" | "due-date" | "status"
+    "category" | "due-date" | "status" | "title"
   >();
   const [feedback, setFeedback] = useState<TaskFeedback>();
   const [isEditingCategory, setIsEditingCategory] = useState(false);
   const [isEditingDueDate, setIsEditingDueDate] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [categoryDraft, setCategoryDraft] = useState(task.categoryId);
   const [dueDateDraft, setDueDateDraft] = useState(task.dueDate ?? "");
+  const [titleDraft, setTitleDraft] = useState(task.title);
   const updatingRef = useRef(false);
   const categorySelectRef = useRef<HTMLSelectElement>(null);
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const dueDateInputRef = useRef<HTMLInputElement>(null);
   const dueDateTriggerRef = useRef<HTMLButtonElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleTriggerRef = useRef<HTMLButtonElement>(null);
   const shouldRestoreCategoryFocusRef = useRef(false);
   const shouldRestoreDueDateFocusRef = useRef(false);
+  const shouldRestoreTitleFocusRef = useRef(false);
   const isCompleted = task.status === "completed";
   const isUpdating = pendingAction !== undefined;
   const actionLabel = isCompleted
@@ -185,6 +207,61 @@ const TaskRow = memo(function TaskRow({
       dueDateTriggerRef.current?.focus();
     }
   }, [isEditingDueDate]);
+
+  useEffect(() => {
+    if (isEditingTitle) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    } else if (shouldRestoreTitleFocusRef.current) {
+      shouldRestoreTitleFocusRef.current = false;
+      titleTriggerRef.current?.focus();
+    }
+  }, [isEditingTitle]);
+
+  function closeTitleEditor() {
+    if (updatingRef.current) {
+      return;
+    }
+
+    setTitleDraft(task.title);
+    setFeedback(undefined);
+    shouldRestoreTitleFocusRef.current = true;
+    setIsEditingTitle(false);
+  }
+
+  async function updateTitle(title: string) {
+    if (updatingRef.current || onRenameTask === undefined) {
+      return;
+    }
+
+    updatingRef.current = true;
+    setPendingAction("title");
+    setFeedback(undefined);
+
+    try {
+      const updatedTask = await onRenameTask({ taskId: task.id, title });
+      setTitleDraft(updatedTask.title);
+      shouldRestoreTitleFocusRef.current = true;
+      setIsEditingTitle(false);
+      setFeedback({ kind: "success", message: "Task renamed." });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getRenameTaskErrorMessage(error),
+      });
+    } finally {
+      updatingRef.current = false;
+      setPendingAction(undefined);
+    }
+  }
+
+  function submitTitle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedTitle = titleDraft.trim();
+    if (normalizedTitle.length > 0 && normalizedTitle !== task.title) {
+      void updateTitle(titleDraft);
+    }
+  }
 
   function closeCategoryEditor() {
     if (updatingRef.current) {
@@ -328,15 +405,40 @@ const TaskRow = memo(function TaskRow({
         />
       )}
       <div className="task-row-content min-w-0">
-        <p
-          className={
-            task.status === "completed"
-              ? "break-words text-sm leading-5 text-[var(--text-muted)] line-through"
-              : "break-words text-sm leading-5 text-[var(--text-primary)]"
-          }
-        >
-          {task.title}
-        </p>
+        {onRenameTask === undefined ? (
+          <p
+            className={
+              task.status === "completed"
+                ? "break-words text-sm leading-5 text-[var(--text-muted)] line-through"
+                : "break-words text-sm leading-5 text-[var(--text-primary)]"
+            }
+          >
+            {task.title}
+          </p>
+        ) : (
+          <button
+            aria-expanded={isEditingTitle}
+            aria-label={`Edit title for task: ${task.title}`}
+            className={
+              task.status === "completed"
+                ? "task-title-trigger task-title-trigger-completed line-through"
+                : "task-title-trigger"
+            }
+            disabled={isUpdating}
+            onClick={() => {
+              setTitleDraft(task.title);
+              setFeedback(undefined);
+              setIsEditingCategory(false);
+              setIsEditingDueDate(false);
+              setIsEditingTitle(true);
+            }}
+            ref={titleTriggerRef}
+            title="Rename task"
+            type="button"
+          >
+            {task.title}
+          </button>
+        )}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-[var(--text-muted)]">
           {onMoveTask === undefined ||
           category === undefined ||
@@ -352,6 +454,7 @@ const TaskRow = memo(function TaskRow({
                 setCategoryDraft(task.categoryId);
                 setFeedback(undefined);
                 setIsEditingDueDate(false);
+                setIsEditingTitle(false);
                 setIsEditingCategory(true);
               }}
               ref={categoryTriggerRef}
@@ -385,6 +488,7 @@ const TaskRow = memo(function TaskRow({
                 setDueDateDraft(task.dueDate ?? "");
                 setFeedback(undefined);
                 setIsEditingCategory(false);
+                setIsEditingTitle(false);
                 setIsEditingDueDate(true);
               }}
               ref={dueDateTriggerRef}
@@ -396,6 +500,58 @@ const TaskRow = memo(function TaskRow({
           )}
           {isOverdue ? <span className="overdue-label">Overdue</span> : null}
         </div>
+        {isEditingTitle ? (
+          <form
+            aria-label={`Edit title for task: ${task.title}`}
+            className="task-title-form"
+            onSubmit={submitTitle}
+          >
+            <label className="sr-only" htmlFor={`task-title-${task.id}`}>
+              Title for {task.title}
+            </label>
+            <input
+              className="task-title-input"
+              disabled={isUpdating}
+              id={`task-title-${task.id}`}
+              onChange={(event) => {
+                setTitleDraft(event.target.value);
+                if (feedback?.kind === "error") {
+                  setFeedback(undefined);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeTitleEditor();
+                }
+              }}
+              ref={titleInputRef}
+              type="text"
+              value={titleDraft}
+            />
+            <button
+              aria-label={`Save title for task: ${task.title}`}
+              className="task-title-save"
+              disabled={
+                isUpdating ||
+                titleDraft.trim().length === 0 ||
+                titleDraft.trim() === task.title
+              }
+              type="submit"
+            >
+              {pendingAction === "title" ? "Saving..." : "Save"}
+            </button>
+            <button
+              aria-label={`Cancel title edit for task: ${task.title}`}
+              className="task-title-cancel"
+              disabled={isUpdating}
+              onClick={closeTitleEditor}
+              type="button"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : null}
         {isEditingCategory ? (
           <form
             aria-label={`Edit category for task: ${task.title}`}
@@ -880,6 +1036,7 @@ export function TaskWorkspace({
   onCreateCategory,
   onCreateTask,
   onMoveTask,
+  onRenameTask,
   onSetTaskDueDate,
   onSetTaskStatus,
 }: {
@@ -889,6 +1046,7 @@ export function TaskWorkspace({
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
+  readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
@@ -1118,6 +1276,7 @@ export function TaskWorkspace({
                   }
                   key={task.id}
                   onMoveTask={moveTaskForCurrentView}
+                  onRenameTask={onRenameTask}
                   onSetTaskDueDate={setTaskDueDateForCurrentView}
                   onSetTaskStatus={onSetTaskStatus}
                   task={task}

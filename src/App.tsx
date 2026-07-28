@@ -12,6 +12,7 @@ import {
   type CreateCategoryInput,
   type CreateTaskInput,
   type MoveTaskInput,
+  type RenameTaskInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type SmartSpaceClient,
@@ -243,6 +244,7 @@ export function WorkspaceBody({
   onCreateCategory,
   onCreateTask,
   onMoveTask,
+  onRenameTask,
   onSetTaskDueDate,
   onSetTaskStatus,
   loadingRegionRef,
@@ -254,6 +256,7 @@ export function WorkspaceBody({
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
+  readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
@@ -272,6 +275,7 @@ export function WorkspaceBody({
           onCreateCategory={onCreateCategory}
           onCreateTask={onCreateTask}
           onMoveTask={onMoveTask}
+          onRenameTask={onRenameTask}
           onSetTaskDueDate={onSetTaskDueDate}
           onSetTaskStatus={onSetTaskStatus}
         />
@@ -369,6 +373,22 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     [client],
   );
 
+  const renameTask = useCallback(
+    async (input: RenameTaskInput) => {
+      const updatedTask = await client.renameTask(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: replaceTask(current.data, input.taskId, updatedTask),
+            }
+          : current,
+      );
+      return updatedTask;
+    },
+    [client],
+  );
+
   const setTaskDueDate = useCallback(
     async (input: SetTaskDueDateInput) => {
       const updatedTask = await client.setTaskDueDate(input);
@@ -432,6 +452,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
         onCreateCategory={createCategory}
         onCreateTask={createTask}
         onMoveTask={moveTask}
+        onRenameTask={renameTask}
         onSetTaskDueDate={setTaskDueDate}
         onSetTaskStatus={setTaskStatus}
         onRetry={() => {

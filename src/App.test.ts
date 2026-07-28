@@ -116,6 +116,7 @@ function createClient(
   createCategory: SmartSpaceClient["createCategory"] = unexpectedCreateCategory,
   setTaskDueDate: SmartSpaceClient["setTaskDueDate"] = unexpectedSetTaskDueDate,
   moveTask: SmartSpaceClient["moveTask"] = unexpectedMoveTask,
+  renameTask: SmartSpaceClient["renameTask"] = unexpectedRenameTask,
 ): SmartSpaceClient {
   return {
     pickApplicationExecutable: unexpectedPickApplicationExecutable,
@@ -123,7 +124,7 @@ function createClient(
     listTasks: vi.fn(async () => taskResult),
     createTask,
     setTaskStatus,
-    renameTask: unexpectedRenameTask,
+    renameTask,
     setTaskDueDate,
     moveTask,
     reorderTasks: unexpectedReorderTasks,
@@ -2163,5 +2164,271 @@ describe("App task workspace lifecycle", () => {
         name: "Edit category for task: Current category session",
       }).textContent,
     ).toBe("Inbox");
+  });
+
+  it("renames a task once from the backend DTO and locks row operations", async () => {
+    const pendingRename = createDeferred<TaskDto>();
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000047",
+      "Original title",
+      workId,
+    );
+    const renamedTask: TaskDto = {
+      ...task,
+      title: "Renamed by backend",
+      updatedAt: "2026-07-28T13:00:00.000000001Z",
+    };
+    const renameTask = vi.fn(() => pendingRename.promise);
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          renameTask,
+        ),
+      }),
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Edit title for task: Original title",
+    });
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("Title for Original title");
+    expect(document.activeElement).toBe(input);
+    expect((input as HTMLInputElement).selectionStart).toBe(0);
+    expect((input as HTMLInputElement).selectionEnd).toBe(
+      "Original title".length,
+    );
+    const saveButton = screen.getByRole("button", {
+      name: "Save title for task: Original title",
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "  Original title  " } });
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.change(input, {
+      target: { value: "  Renamed by backend  " },
+    });
+    expect(saveButton.disabled).toBe(false);
+    const form = screen.getByRole("form", {
+      name: "Edit title for task: Original title",
+    });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(renameTask).toHaveBeenCalledTimes(1);
+    expect(renameTask).toHaveBeenCalledWith({
+      taskId: task.id,
+      title: "  Renamed by backend  ",
+    });
+    expect(saveButton.disabled).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Updating task: Original title",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Edit category for task: Original title",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Edit due date for task: Original title",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      pendingRename.resolve(renamedTask);
+      await pendingRename.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Task renamed.",
+    );
+    const renamedTrigger = screen.getByRole("button", {
+      name: "Edit title for task: Renamed by backend",
+    });
+    expect(renamedTrigger.textContent).toBe("Renamed by backend");
+    expect(document.activeElement).toBe(renamedTrigger);
+  });
+
+  it("cancels a title draft with Escape or Cancel and restores focus", async () => {
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000048",
+      "Keep title",
+      workId,
+    );
+    const renameTask = vi.fn<SmartSpaceClient["renameTask"]>();
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          renameTask,
+        ),
+      }),
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Edit title for task: Keep title",
+    });
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("Title for Keep title");
+    fireEvent.change(input, { target: { value: "Discard with Escape" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(screen.queryByLabelText("Title for Keep title")).toBeNull();
+    expect(renameTask).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    const reopenedInput = screen.getByLabelText(
+      "Title for Keep title",
+    ) as HTMLInputElement;
+    expect(reopenedInput.value).toBe("Keep title");
+    fireEvent.change(reopenedInput, {
+      target: { value: "Discard with Cancel" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Cancel title edit for task: Keep title",
+      }),
+    );
+
+    expect(screen.queryByLabelText("Title for Keep title")).toBeNull();
+    expect(renameTask).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it.each([
+    [
+      "invalid input",
+      new SmartSpaceCommandError("invalid_input", "invalid title"),
+      "Enter a valid task title.",
+    ],
+    [
+      "missing task",
+      new SmartSpaceCommandError("task_not_found", "missing task"),
+      "This task is no longer available.",
+    ],
+    [
+      "unknown failure",
+      new Error("offline"),
+      "Task title could not be updated. Try again.",
+    ],
+  ])("retains the title draft after %s", async (_case, error, message) => {
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000049",
+      "Retry rename",
+      workId,
+    );
+    const renameTask = vi.fn(async () => {
+      throw error;
+    });
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          renameTask,
+        ),
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit title for task: Retry rename",
+      }),
+    );
+    const input = screen.getByLabelText("Title for Retry rename");
+    fireEvent.change(input, { target: { value: "Retry this title" } });
+    fireEvent.submit(
+      screen.getByRole("form", {
+        name: "Edit title for task: Retry rename",
+      }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(message);
+    expect((input as HTMLInputElement).value).toBe("Retry this title");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save title for task: Retry rename",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("ignores a pending rename result after the client session changes", async () => {
+    const pendingRename = createDeferred<TaskDto>();
+    const staleTask = createTask(
+      "10000000-0000-0000-0000-000000000050",
+      "Stale rename",
+      workId,
+    );
+    const staleRenameTask = vi.fn(() => pendingRename.promise);
+    const staleClient = createClient(
+      [staleTask],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      staleRenameTask,
+    );
+    const currentTask = createTask(
+      "10000000-0000-0000-0000-000000000051",
+      "Current rename session",
+      inboxId,
+    );
+    const currentClient = createClient([currentTask]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit title for task: Stale rename",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Title for Stale rename"), {
+      target: { value: "Stale result" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Save title for task: Stale rename",
+      }),
+    );
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current rename session")).not.toBeNull();
+
+    await act(async () => {
+      pendingRename.resolve({ ...staleTask, title: "Stale result" });
+      await pendingRename.promise;
+    });
+
+    expect(screen.queryByText("Stale result")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Edit title for task: Current rename session",
+      }),
+    ).not.toBeNull();
   });
 });
