@@ -205,3 +205,61 @@ No actionable findings.
 - Resolution commit: `6c3704ad1d85d863398db0ff22f53e3d9db40a57`
 - Verified by: `GPT-5.6 Sol review Agent`
 - Notes: `WP01-R1`, `WP01-R2`, and `WP01-R3` are resolved; WP-01 is approved.
+
+### Review 2026-07-28 - WP-02
+
+#### Review Metadata
+
+- Review Agent: `GPT-5.6 Sol review Agent`
+- Implementation commit or range: `b3670dc59e9ea86f1956e700e4d6abdd02e82c19..a85d43dbd00c3774a7f35c635a2db90cfbe741e3`
+- Handoff reviewed: Yes
+- Review scope: WP-02 quick-panel creation, shortcut registration/status delivery, window visibility and focus transitions, close/minimize/blur lifecycle, and adjacent typed IPC/preload contracts
+- Outcome: Changes requested
+
+#### Findings
+
+##### [P1] Keep first-launch bounds inside smaller primary work areas
+
+- Location: `src/main/shell/create-main-window.ts:26`
+- Acceptance criterion or invariant: WP-02 requires the first launch to be centered in the current primary work area.
+- Evidence: `getCenteredWindowBounds` clamps only the centering offset and always returns the requested `1180 x 760` size. For a common `1366 x 728` work area (for example, a 1366 x 768 display after the taskbar), it returns `{ x: 93, y: 0, width: 1180, height: 760 }`, placing 32 DIP below the work area. The focused test covers only a work area larger than the defaults.
+- Impact: On common laptop displays, the first-launch panel is not contained or vertically centered in the usable desktop and its bottom content or resize affordance can be inaccessible behind the taskbar.
+- Required change: Clamp the initial width and height to the primary work area before calculating the centered coordinates, define the behavior when the work area is smaller than the normal minimum, and add focused coverage for a work area smaller than one or both default dimensions.
+
+##### [P1] Deliver initial shortcut conflicts after the renderer subscribes
+
+- Location: `src/main/main.ts:51`
+- Acceptance criterion or invariant: WP-02 requires shortcut conflicts to be visible and to leave a usable shortcut registered; an initial default-shortcut conflict has no previous usable registration, so its error delivery must be reliable.
+- Evidence: The initial status is sent once from `did-finish-load` at lines 59-61, while `src/App.tsx:249` does not attach `onShortcutStatus` until a React passive effect runs. Electron renderer events are not replayed to listeners registered after `webContents.send`, and there is no status query, renderer-ready handshake, or preload-side buffer. If the load event reaches main before that effect subscribes, the conflict event is lost. The implementation does show the window in this state, but no later path republishes the explanation.
+- Impact: When `Ctrl+Shift+Space` is already owned by another application, SmartSpace can open with no working global shortcut and no visible conflict message, leaving the user unable to understand or recover from the required conflict path.
+- Required change: Make current shortcut status recoverable after renderer readiness, such as through a validated query/handshake or a preload-side replay buffer, and add a test in which the initial conflict exists before the renderer listener is attached.
+
+#### Verification
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Diff matches recorded scope | Pass | The exact single-commit range contains WP-02 shell/window behavior, its typed IPC and renderer integration, focused tests, and the implementation handoff; no later-package persistence, tray, SQLite, or native-host implementation was added. |
+| Relevant automated tests | Pass | `npm.cmd test`: 4 files, 26 tests passed. Existing tests cover shortcut replacement retention, visible/focused toggling, blur modes, close/minimize guards, destroyed-window guards, payload validation, and sender authorization, but not the two failing boundary cases above. |
+| Typecheck/build | Pass | `npm.cmd run typecheck` and `npm.cmd run build` passed. |
+| Manual acceptance checks | Not run | Full interactive shortcut-conflict and blur acceptance was not run. `node scripts/smoke-electron.mjs` passed. A repository-external Electron probe verified that Windows restores `minimize -> hide -> show/focus` to `minimized=false`, `visible=true`, and `focused=true`; the probe was removed afterward. |
+| Security/lifecycle review | Fail | New invoke handlers preserve active-`WebContents` authorization and validated payloads, and close/quit guards avoid ordinary process termination. First-launch containment and reliable initial-conflict delivery remain broken. |
+
+#### Open Questions and Assumptions
+
+- WP-07 owns shortcut recording and persistence, but WP-02 still owns reliable delivery of an initial default-shortcut conflict because no prior registration exists in that path.
+
+#### Residual Risk
+
+- Packaged Windows behavior and full manual shortcut/blur interaction remain unverified, consistent with the handoff. The startup smoke validates loading and the existing app-info bridge but does not exercise shortcut conflicts or real blur/close input.
+
+#### Required Follow-up
+
+- [ ] `WP02-R1` Implementation Agent: clamp and center first-launch bounds within smaller primary work areas and add boundary tests.
+- [ ] `WP02-R2` Implementation Agent: make initial shortcut status delivery race-free and add late-subscriber coverage.
+
+#### Resolution
+
+- Status: Open
+- Resolution commit: `not available`
+- Verified by: `not yet verified`
+- Notes: Both P1 findings must be fixed or explicitly accepted before WP-02 can be approved.
