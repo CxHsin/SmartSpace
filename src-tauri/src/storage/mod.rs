@@ -12,7 +12,7 @@ mod tasks;
 pub use categories::CategoryDeletionSnapshot;
 pub use runtime::{DatabaseRuntimeError, DatabaseState, DATABASE_FILE_NAME};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA_META_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -22,10 +22,16 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 INSERT OR IGNORE INTO schema_meta (singleton, version) VALUES (1, 0);
 "#;
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: include_str!("migrations/0001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: include_str!("migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("migrations/0002_applications.sql"),
+    },
+];
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -231,8 +237,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        apply_migrations, initialize_schema_meta, read_schema_version, Database, Migration,
-        StorageError, CURRENT_SCHEMA_VERSION, MIGRATIONS,
+        apply_migrations, configure_connection_defaults, initialize_schema_meta,
+        read_schema_version, Database, Migration, StorageError, CURRENT_SCHEMA_VERSION, MIGRATIONS,
     };
     use crate::domain::CategoryId;
 
@@ -330,6 +336,107 @@ mod tests {
                 .unwrap(),
             1
         );
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM applications", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn version_one_database_migrates_without_changing_tasks_or_categories() {
+        let path = temporary_database_path();
+        let (categories_before, tasks_before) = {
+            let mut connection = Connection::open(&path).unwrap();
+            configure_connection_defaults(&connection).unwrap();
+            initialize_schema_meta(&connection).unwrap();
+            apply_migrations(&mut connection, &MIGRATIONS[..1], 1).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO categories (id, name, position, kind) VALUES (?1, 'Work', 1, 'user')",
+                    [OTHER_CATEGORY_ID],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO tasks (id, title, status, category_id, position, created_at, updated_at)
+                     VALUES ('30000000-0000-0000-0000-000000000005', 'Preserved task', 'open', ?1, 0, ?2, ?2)",
+                    params![OTHER_CATEGORY_ID, "2026-07-28T12:00:00.000000000Z"],
+                )
+                .unwrap();
+            (
+                stored_category_rows(&connection),
+                stored_task_rows(&connection),
+            )
+        };
+
+        let database = Database::open(&path).unwrap();
+        assert_eq!(database.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            stored_category_rows(&database.connection),
+            categories_before
+        );
+        assert_eq!(stored_task_rows(&database.connection), tasks_before);
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM applications", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+
+        drop(database);
+        remove_database_files(&path);
+    }
+
+    #[test]
+    fn application_schema_rejects_invalid_configuration_fields() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = &database.connection;
+
+        connection
+            .execute(
+                "INSERT INTO applications (id, display_name, executable_path, icon_cache_key, position)
+                 VALUES ('40000000-0000-0000-0000-000000000001', 'Example', 'C:\\Example\\example.exe', NULL, 0)",
+                [],
+            )
+            .unwrap();
+        assert_constraint_violation(connection.execute(
+            "INSERT INTO applications (id, display_name, executable_path, position)
+             VALUES ('40000000-0000-0000-0000-000000000002', char(9), 'C:\\Example\\blank-name.exe', 1)",
+            [],
+        ));
+        assert_constraint_violation(connection.execute(
+            "INSERT INTO applications (id, display_name, executable_path, position)
+             VALUES ('40000000-0000-0000-0000-000000000003', 'Blank path', char(10), 1)",
+            [],
+        ));
+        assert_constraint_violation(connection.execute(
+            "INSERT INTO applications (id, display_name, executable_path, icon_cache_key, position)
+             VALUES ('40000000-0000-0000-0000-000000000004', 'Blank icon', 'C:\\Example\\blank-icon.exe', ' ', 1)",
+            [],
+        ));
+        assert_constraint_violation(connection.execute(
+            "INSERT INTO applications (id, display_name, executable_path, position)
+             VALUES ('40000000-0000-0000-0000-000000000005', 'Negative position', 'C:\\Example\\negative.exe', -1)",
+            [],
+        ));
+        assert_constraint_violation(connection.execute(
+            "INSERT INTO applications (id, display_name, executable_path, position)
+             VALUES ('40000000-0000-0000-0000-000000000006', 'Text position', 'C:\\Example\\text.exe', 'abc')",
+            [],
+        ));
+        assert_constraint_violation(connection.execute(
+            "INSERT INTO applications (id, display_name, executable_path, position)
+             VALUES ('40000000-0000-0000-0000-000000000007', 'Fractional position', 'C:\\Example\\fractional.exe', 0.5)",
+            [],
+        ));
     }
 
     #[test]
@@ -417,11 +524,15 @@ mod tests {
             },
             Migration {
                 version: 2,
+                sql: "",
+            },
+            Migration {
+                version: 3,
                 sql: "CREATE TABLE half_done (id INTEGER PRIMARY KEY); INSERT INTO missing_table VALUES (1);",
             },
         ];
 
-        assert!(apply_migrations(&mut database.connection, &failing, 2).is_err());
+        assert!(apply_migrations(&mut database.connection, &failing, 3).is_err());
         assert_eq!(database.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
         assert_eq!(
             database
@@ -497,10 +608,10 @@ mod tests {
         let mut database = Database::open_in_memory().unwrap();
 
         assert!(matches!(
-            apply_migrations(&mut database.connection, MIGRATIONS, 2),
+            apply_migrations(&mut database.connection, MIGRATIONS, 3),
             Err(StorageError::MigrationCatalogMismatch {
-                highest: 1,
-                supported: 2
+                highest: CURRENT_SCHEMA_VERSION,
+                supported: 3
             })
         ));
     }
@@ -511,6 +622,56 @@ mod tests {
             error.sqlite_error_code(),
             Some(ErrorCode::ConstraintViolation)
         );
+    }
+
+    type StoredCategoryRow = (String, String, i64, String);
+    type StoredTaskRow = (
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        i64,
+        String,
+        String,
+    );
+
+    fn stored_category_rows(connection: &Connection) -> Vec<StoredCategoryRow> {
+        let mut statement = connection
+            .prepare("SELECT id, name, position, kind FROM categories ORDER BY position")
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    fn stored_task_rows(connection: &Connection) -> Vec<StoredTaskRow> {
+        let mut statement = connection
+            .prepare(
+                "SELECT id, title, status, due_date, category_id, position, created_at, updated_at
+                 FROM tasks ORDER BY category_id, position",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
     }
 
     fn temporary_database_path() -> std::path::PathBuf {
