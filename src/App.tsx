@@ -1,4 +1,4 @@
-import { FormEvent, memo, useMemo, useState } from 'react';
+import { FormEvent, memo, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -33,6 +33,7 @@ import {
 } from '@fluentui/react-icons';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Reveal, springs } from './motion';
+import type { ShortcutStatusEvent } from './shared/ipc';
 
 type Category = string;
 type TaskStatus = 'active' | 'completed';
@@ -238,10 +239,20 @@ export function App() {
   const [confirmApp, setConfirmApp] = useState<HostedApp | null>(null);
   const [shortcut, setShortcut] = useState('Ctrl + Shift + Space');
   const [launchAtStartup, setLaunchAtStartup] = useState(true);
+  const [hideOnBlur, setHideOnBlur] = useState(true);
   const [manageDialog, setManageDialog] = useState<ManageDialogState | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
   const [manageName, setManageName] = useState('');
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
+  const [shortcutConflict, setShortcutConflict] = useState<ShortcutStatusEvent | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = window.smartSpace?.events.onShortcutStatus((status) => {
+      setShortcutConflict(status.state === 'conflict' ? status : null);
+    });
+
+    return () => unsubscribe?.();
+  }, []);
 
   const availableTags = useMemo(
     () => categoryTags[selectedCategory] ?? [],
@@ -388,6 +399,27 @@ export function App() {
     setConfirmApp(null);
   }
 
+  function hideQuickPanel() {
+    const smartSpace = window.smartSpace;
+    if (smartSpace !== undefined) {
+      void smartSpace.window.hide({});
+    }
+  }
+
+  function updateHideOnBlur(enabled: boolean) {
+    const smartSpace = window.smartSpace;
+    if (smartSpace === undefined) {
+      setHideOnBlur(enabled);
+      return;
+    }
+
+    void smartSpace.window.setHideOnBlur({ enabled }).then((response) => {
+      if (response.ok) {
+        setHideOnBlur(response.value.hideOnBlur);
+      }
+    });
+  }
+
   return (
     <FluentProvider theme={theme === 'dark' ? webDarkTheme : webLightTheme}>
       <main className={`desktop-canvas theme-${theme}`}>
@@ -407,13 +439,18 @@ export function App() {
               </Tooltip>
               <span>SmartSpace</span>
             </div>
+            {shortcutConflict ? (
+              <div className="shortcut-status" role="alert">
+                {shortcutConflict.message ?? `Shortcut unavailable: ${shortcutConflict.shortcut}`}
+              </div>
+            ) : null}
             <div className="window-actions">
               <Tooltip content="设置" relationship="label">
                 <Button appearance="subtle" icon={<Settings20Regular />} aria-label="设置" onClick={() => setSettingsOpen(true)} />
               </Tooltip>
               <span className="window-rule" />
-              <button className="window-control" type="button" aria-label="隐藏窗口">−</button>
-              <button className="window-control close" type="button" aria-label="退出窗口">×</button>
+              <button className="window-control" type="button" aria-label="隐藏窗口" onClick={hideQuickPanel}>−</button>
+              <button className="window-control close" type="button" aria-label="隐藏窗口" onClick={hideQuickPanel}>×</button>
             </div>
           </header>
 
@@ -576,6 +613,10 @@ export function App() {
               <div className="settings-row">
                 <div><strong>开机启动</strong><span>登录 Windows 后在托盘中运行</span></div>
                 <Switch aria-label="开机启动" checked={launchAtStartup} onChange={(_, data) => setLaunchAtStartup(data.checked)} />
+              </div>
+              <div className="settings-row">
+                <div><strong>失去焦点时隐藏</strong><span>点击其他窗口后隐藏 SmartSpace</span></div>
+                <Switch aria-label="失去焦点时隐藏" checked={hideOnBlur} onChange={(_, data) => updateHideOnBlur(data.checked)} />
               </div>
               <div className="settings-row">
                 <div><strong>浅色界面</strong><span>切换主窗口的界面主题</span></div>

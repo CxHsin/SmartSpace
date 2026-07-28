@@ -81,6 +81,7 @@ button:focus-visible {
   border-bottom: 1px solid var(--line-soft);
   background: var(--surface-raised);
   user-select: none;
+  -webkit-app-region: drag;
 }
 
 .brand-mark,
@@ -89,11 +90,28 @@ button:focus-visible {
   align-items: center;
 }
 
+.window-bar button,
+.window-bar [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
 .brand-mark {
   gap: 8px;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.shortcut-status {
+  min-width: 0;
+  max-width: 42%;
+  margin-inline: auto 12px;
+  overflow: hidden;
+  color: #d9a441;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand-toggle {

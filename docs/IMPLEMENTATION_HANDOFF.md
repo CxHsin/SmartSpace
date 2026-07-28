@@ -14,130 +14,126 @@ Use `None` when a field is genuinely not applicable. Do not use `None` for skipp
 
 ### Assignment
 
-- Work package: `WP-01: Electron Foundation`
-- Implementation Agent: `GPT-5.6 Luna implementation Agent` (review-fix round)
-- Started at: `2026-07-28 17:42:11 +08:00`
-- Completed at: `2026-07-28 17:58:30 +08:00`
-- Starting commit: `f11e5179ef13ae9f3ddf56c4cbea811785bd6748`
-- Review commit or range: `f11e5179ef13ae9f3ddf56c4cbea811785bd6748..HEAD` (single WP-01 review-fix commit)
+- Work package: `WP-02: Quick-Panel Window Lifecycle`
+- Implementation Agent: `GPT-5.6 Luna implementation Agent` (`luna`, `gpt-5.6-luna`, `xhigh`)
+- Started at: `2026-07-28 18:27:41 +08:00`
+- Completed at: `2026-07-28 18:42:30 +08:00`
+- Starting commit: `b3670dc59e9ea86f1956e700e4d6abdd02e82c19`
+- Review commit or range: `b3670dc..HEAD` (single WP-02 implementation commit; resolve `HEAD` after commit)
 - Handoff status: `Ready for review`
 
 ### Intended Scope
 
-Summarize the assigned outcome and list the acceptance criteria targeted in this round.
-
-- Fix accepted review finding R1 by authorizing `app:get-info` only for the active SmartSpace renderer and returning a structured unauthorized-sender error.
-- Fix accepted review finding R2 with an exact typed empty request contract and compile-time extra-field coverage while retaining `{}` on the IPC wire.
-- Fix accepted review finding R3 by checking every file in the configured renderer TypeScript project for forbidden Node.js, Electron, and SQLite imports, with a negative fixture.
+- Implement the frameless, always-on-top, taskbar-excluded quick-panel window.
+- Center the first window on the primary display work area.
+- Register and manage the default `Ctrl+Shift+Space` global shortcut with visible conflict reporting and preservation of the prior valid registration.
+- Implement show, hide, focus, blur-to-hide configuration, and close/minimize-to-hide lifecycle behavior with a quitting guard.
+- Extend the typed IPC and preload boundary only for the shell controls required by this package.
 
 ### Constraints Applied
 
-List only constraints that materially affected this implementation. Include relevant PRD rules, architecture boundaries, platform assumptions, or decisions inherited from an accepted review.
-
-- Electron main owns IPC registration and authorizes the active SmartSpace `WebContents`; renderer code receives only the typed preload API.
-- Context isolation, sandboxing, disabled Node integration, navigation restrictions, and a restrictive CSP remain foundation security invariants.
-- The existing empty-object `app:get-info` IPC wire contract remains unchanged for runtime compatibility.
+- Preserve the WP-01 renderer boundary: no Node.js, Electron main APIs, or SQLite access from renderer code.
+- Keep tray creation, persisted bounds, split ratio, title Settings/Exit flows, and coordinated shutdown in WP-03.
+- Keep all shell termination behind an explicit quitting guard; ordinary close/minimize events hide the panel.
+- Use the primary display `workArea` for first-launch centering and keep window bounds deterministic for future WP-03 persistence.
+- Keep hide-on-blur as an in-memory shell setting; persistence belongs to WP-07.
 
 ### Work Completed
 
-Describe observable behavior that was actually implemented. Use concise statements that a Reviewer can verify in code or by running the application.
-
-- IPC registration now binds `app:get-info` to the active window's `WebContents` and returns a structured `unauthorized-sender` error for other senders.
-- `AppInfoRequest` now rejects unexpected fields at compile time while keeping the runtime request wire shape as `{}`.
-- Renderer boundary tests now discover every TypeScript source file from `tsconfig.app.json` and inspect static, dynamic, `require`, and import-equals module references with a negative fixture.
+- `createMainWindow` now creates a hidden frameless window with fixed minimum bounds, always-on-top behavior, taskbar exclusion, and first-launch centering from `screen.getPrimaryDisplay().workArea`.
+- `QuickPanelController` owns shortcut registration, show/focus/hide toggling, blur handling, close/minimize hiding, quitting guard behavior, and cleanup.
+- The default `Ctrl+Shift+Space` shortcut shows and focuses a hidden panel, hides a focused visible panel, and focuses a visible unfocused panel. A failed replacement registration leaves the previous registered accelerator untouched.
+- Initial shortcut conflicts open the panel so the renderer can show the conflict status. The renderer receives typed `shell:shortcut-status` events.
+- The existing frameless title-bar hide and close controls now call the typed `window:hide` API. Both hide the panel without terminating Electron.
+- The existing Settings UI now controls runtime hide-on-blur behavior through typed `window:set-hide-on-blur` IPC. The controller defaults to enabled and preserves visibility when disabled.
+- `before-quit` marks the controller as quitting so an explicit future exit can close the window; `will-quit` unregisters the active shortcut.
+- The title bar declares the drag region and all interactive title controls declare the no-drag region.
 
 ### Files Changed
 
-List files grouped by purpose. Explain why each group changed; do not reproduce the diff.
-
 | File or directory | Change type | Purpose |
 | --- | --- | --- |
-| `src/main/ipc/register-ipc.ts`, `src/main/main.ts` | Security fix | Authorize the active SmartSpace renderer before dispatching `app:get-info` |
-| `src/shared/ipc.ts` | Contract fix | Add the unauthorized-sender error and exact empty request type |
-| `tests/ipc.test.ts`, `tests/ipc-types.test.ts` | Regression tests | Cover sender authorization and compile-time request strictness |
-| `tests/security.test.ts`, `tests/fixtures/renderer-forbidden-import.ts` | Security test fix | Scan the configured renderer project and prove forbidden-import detection |
-| `docs/IMPLEMENTATION_HANDOFF.md` | Handoff | Record this review-fix round and verification evidence |
+| `src/main/shell/create-main-window.ts` | Shell behavior | Create and center the frameless quick-panel window with always-on-top and taskbar exclusion options |
+| `src/main/shell/quick-panel-controller.ts` | New shell service | Own shortcut and window lifecycle state with testable behavior |
+| `src/main/main.ts` | Shell integration | Register the controller, lifecycle guards, typed window handlers, shortcut status delivery, and initial conflict visibility |
+| `src/main/ipc/handlers.ts`, `src/main/ipc/register-ipc.ts` | IPC handlers | Validate and authorize window hide and hide-on-blur operations |
+| `src/shared/ipc.ts`, `src/preload/preload.ts` | IPC/preload contract | Add typed window control requests, structured responses, and shortcut status events |
+| `src/App.tsx`, `src/styles.css` | Renderer integration | Wire title actions and Settings blur control; add conflict status and frameless drag/no-drag CSS |
+| `tests/window-lifecycle.test.ts` | New lifecycle tests | Cover work-area centering, window options, toggle, conflict preservation, blur, close/minimize, quitting, and destroyed-window guards |
+| `tests/ipc.test.ts`, `tests/ipc-types.test.ts` | IPC regression tests | Cover sender authorization, payload validation, structured errors, response parsing, and compile-time request strictness |
+| `docs/IMPLEMENTATION_HANDOFF.md` | Handoff | Record this WP-02 implementation round and verification evidence |
 
 ### Key Implementation Decisions
 
-Record decisions where a reasonable alternative existed and where the choice affects future packages, compatibility, security, data, or process lifecycle.
-
 | Decision | Reason | Consequence |
 | --- | --- | --- |
-| Build main and preload as separate single-entry CommonJS bundles | Sandboxed preload cannot load Vite-generated local shared chunks through ordinary `require` | Shared IPC code is bundled into both outputs; `dist/electron/preload.cjs` is self-contained |
-| Use context isolation, sandbox, disabled Node integration, web security, navigation allow-list, and a narrow context bridge | Renderer is an untrusted UI boundary and must not own shell or persistence access | Renderer receives only `window.smartSpace` and structured IPC results |
-| Use Electron `43.2.0`, defer `better-sqlite3` and `koffi`, and use electron-builder `26.15.3` | Keep WP-01 runnable without prematurely implementing WP-04/WP-08 native behavior | Exact choices and ABI/packaging follow-up are recorded in ADR 0001 |
+| Start the panel hidden and reveal it through the global shortcut | The panel is a tray-oriented quick surface; the first visible launch is controlled by the same show path as later launches | Interactive UI acceptance should invoke `Ctrl+Shift+Space`; the Electron startup smoke loads the hidden renderer without requiring a visible window |
+| Register a replacement shortcut before unregistering the active shortcut | A conflict must not silently remove a previously usable shortcut | A failed replacement reports `conflict` and retains the prior active accelerator |
+| Treat a focused visible panel as toggle-hide, but focus a visible unfocused panel | This preserves the PRD toggle flow while making the shortcut useful when blur hiding is disabled and another app has focus | The controller distinguishes visible/focused state in unit tests |
+| Keep hide-on-blur runtime-only in WP-02 | Settings persistence is owned by WP-07 and no SQLite behavior belongs in this package | Restart persistence is explicitly deferred; the typed setter is ready for the later settings repository |
+| Use a frameless window with a CSS drag region and explicit no-drag controls | The renderer already supplies a compact title area and WP-02 owns native frameless behavior | All title-bar controls remain clickable while the surrounding title area can drag the window |
 
 ### Data and Contract Changes
 
-Record migrations, schema changes, IPC additions or changes, preload API changes, configuration changes, and compatibility implications.
-
-- Database migrations: None; SQLite driver is an ADR decision only and no database dependency was added.
-- IPC/preload contracts: Added `app:get-info` request/response and `shell:ready` event contracts with runtime validation and structured errors.
-- Configuration/build changes: Added separate `dist/renderer` and `dist/electron` outputs, Electron main entry, electron-builder configuration, test projects, and scripts.
-- Backward compatibility: The existing browser-oriented Vite renderer remains usable because the bridge is optional when `window.smartSpace` is absent.
+- Database migrations: None.
+- IPC channels: Added `window:hide`, `window:set-hide-on-blur`, and `shell:shortcut-status`.
+- Preload API: Added `window.hide`, `window.setHideOnBlur`, and `events.onShortcutStatus`; all responses and events are runtime-validated before reaching the renderer.
+- Sender authorization: Both new invoke handlers require the active SmartSpace `WebContents`, matching the WP-01 security contract.
+- Compatibility: Existing `app:get-info` and `shell:ready` contracts remain unchanged. The bridge remains optional for browser-only Vite rendering.
 
 ### Verification Performed
 
-Use exact commands and report the result. For manual checks, specify the environment, steps, and observed result. A command that was not run must be marked `Not run` with a reason.
-
 | Verification | Result | Evidence or notes |
 | --- | --- | --- |
-| `npm.cmd run typecheck` | Pass | `tsc -b --pretty false` passed on Windows. |
-| `npm.cmd test` | Pass | Vitest `4.1.10`: 3 test files, 10 tests passed. |
+| `npm.cmd run typecheck` | Pass | TypeScript project build passed. |
+| `npm.cmd test` | Pass | Vitest `4.1.10`: 4 test files, 26 tests passed. |
 | `npm.cmd run build` | Pass | Renderer and self-contained Electron main/preload bundles built successfully. |
-| `node scripts/smoke-electron.mjs` | Not run | Prior and current attempts were blocked by local Electron GPU/cache permission and child-process exit behavior; no smoke success is claimed for this round. |
-| `$env:SMARTSPACE_SMOKE_TEST='1'; npm.cmd run dev` | Not run | Same local Electron process/exit blocker; no development smoke success is claimed for this round. |
-| `npm.cmd run package:dir` | Not run | Packaging is outside this review-fix scope; prior handoff records the host `EPERM` failure. |
+| `node scripts/smoke-electron.mjs` | Pass | Electron startup smoke passed using the production build outputs and real preload/main startup path. |
 | `git diff --check` | Pass | No whitespace errors. |
-| Packaged Windows smoke test | Not run | Installer/packaged compatibility, native rebuild, startup registration, and clean-environment validation are WP-10 scope; the directory package attempt did not produce a verified package. |
+| Focused lifecycle tests | Pass | Work-area bounds, window options, shortcut state transitions, blur modes, close/minimize, quitting guard, IPC payloads, structured errors, and type contracts are covered by automated tests. |
+| Manual shortcut/blur UI acceptance | Not run | No interactive desktop automation was used in this round; behavior is covered by focused controller and IPC tests. |
+| Packaged Windows smoke test | Not run | Packaging and installed-app validation belong to WP-10; no packaged behavior is claimed. |
 
 ### Problems Solved
 
-Link each solved problem to an acceptance criterion, previous Review finding, or reproducible defect when possible.
-
-- Resolves review findings WP01-R1, WP01-R2, and WP01-R3 without changing the existing IPC wire shape or renderer API surface.
+- Satisfies WP-02 window requirements for frameless presentation, always-on-top behavior, taskbar exclusion, and primary-work-area first-launch centering.
+- Satisfies WP-02 shortcut requirements for default registration, show/focus/hide toggling, conflict visibility, and preservation of a prior valid registration.
+- Satisfies WP-02 blur and ordinary window lifecycle requirements without allowing close/minimize to terminate the shell.
+- Preserves the typed renderer/main security boundary while adding only the window controls required by this package.
 
 ### Known Issues and Residual Risks
 
-Include flaky behavior, untested environments, compatibility uncertainty, deferred cleanup, and assumptions that the Reviewer should challenge.
-
-- Electron smoke remains unverified on this host because the GPU process and cache setup reported permission failures and launched Electron children did not exit reliably; retry in a clean environment is required.
-- `npm run package:dir` was not successful on this Windows host because electron-builder received `EPERM` while renaming its unpack staging directory; retry before WP-10.
-- No packaged installer, signing, native SQLite, Win32 HWND bridge, startup registration, or arbitrary application compatibility is claimed.
-- The current shell uses the foundation default close behavior; shortcut, tray, window persistence, and managed-process lifecycle remain later work packages.
+- Hide-on-blur is not persisted across restart; WP-07 must connect the setting to the persistent settings repository and restore it before the panel is used.
+- Tray actions, persisted window bounds, split ratio, task-pane collapse state preservation, title Settings/Exit coordination, and authoritative shutdown flow remain WP-03 scope.
+- Manual desktop interaction and packaged Windows validation remain unverified in this round.
+- `minimize` is handled after Electron emits its non-cancellable `minimize` event; the frameless title-bar minimize control uses the cancellable typed hide path.
 
 ### Incomplete or Blocked Items
 
-An empty section means the implementation Agent claims the assigned package is complete. Otherwise, explain the blocker, impact, and exact next action.
-
-- None for the accepted review findings. Electron smoke and packaged Windows validation remain explicitly unverified as recorded above.
+- None for WP-02 implementation and required automated checks.
+- Manual desktop interaction and packaged validation are intentionally skipped and recorded above because they belong to later acceptance evidence, not because the implementation is blocked.
 
 ### Scope Deviations
 
-List work added or omitted relative to the assigned package. State who approved any material behavior or architecture change.
-
-- No material scope deviation. Repository/app-host implementations and native dependencies were intentionally omitted because they belong to WP-04/WP-08.
+- No material scope deviation. A runtime hide-on-blur setter and existing Settings switch were included because WP-02 requires the enabled/disabled behavior; persistence remains deferred to WP-07.
+- No tray, SQLite, native app hosting, startup registration, packaged artifacts, or unrelated renderer refactor was added.
 
 ### Reviewer Focus
 
-Point the Review Agent toward the highest-risk code paths and uncertain assumptions. Do not tell the Reviewer what conclusion to reach.
-
-- Confirm that the recorded commit range contains only the assigned work package.
-- Validate every claimed acceptance criterion against the implementation and tests.
-- Check whether any verification listed as passed is incomplete or ineffective.
-- Inspect `src/preload/preload.ts` and the single-entry Electron build to confirm sandbox compatibility and no raw renderer IPC surface.
-- Treat the failed `npm run package:dir` as an explicit unverified packaging risk, not as packaged acceptance evidence.
+- Confirm `screen.getPrimaryDisplay().workArea` is the only first-launch placement source and that no WP-03 persisted-bounds behavior was introduced prematurely.
+- Check that shortcut replacement attempts register the new accelerator before unregistering the active one, and that an initial conflict is visible despite the default hidden startup state.
+- Verify close/minimize/blur callbacks respect `beginQuit()` and do not call Electron termination APIs.
+- Inspect the new preload API and both new invoke handlers for runtime payload validation and active `WebContents` authorization.
+- Treat hide-on-blur restart persistence and packaged/manual UI checks as explicit residual risk, not as claims made by this handoff.
 
 ### Suggested Review Commands
 
-Provide the smallest command set that reproduces verification and exposes the changed behavior.
-
 ```powershell
-npm run typecheck
-npm test
-npm run build
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
 node scripts/smoke-electron.mjs
+git diff --check
 ```
 
 ### Review Readiness Checklist
