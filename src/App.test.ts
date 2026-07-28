@@ -118,6 +118,7 @@ function createClient(
   moveTask: SmartSpaceClient["moveTask"] = unexpectedMoveTask,
   renameTask: SmartSpaceClient["renameTask"] = unexpectedRenameTask,
   renameCategory: SmartSpaceClient["renameCategory"] = unexpectedRenameCategory,
+  reorderCategories: SmartSpaceClient["reorderCategories"] = unexpectedReorderCategories,
 ): SmartSpaceClient {
   return {
     pickApplicationExecutable: unexpectedPickApplicationExecutable,
@@ -132,7 +133,7 @@ function createClient(
     deleteTask: unexpectedDeleteTask,
     createCategory,
     renameCategory,
-    reorderCategories: unexpectedReorderCategories,
+    reorderCategories,
     deleteCategory: unexpectedDeleteCategory,
   };
 }
@@ -895,6 +896,17 @@ describe("App task workspace lifecycle", () => {
       (screen.getByRole("button", { name: "Adding..." }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Sort" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Rename category: Inbox",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
 
     const createdCategory: CategoryDto = {
       id: "00000000-0000-0000-0000-000000000004",
@@ -1100,6 +1112,17 @@ describe("App task workspace lifecycle", () => {
         .disabled,
     ).toBe(true);
     expect((trigger as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Sort" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add category",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
 
     await act(async () => {
       pendingRename.resolve({
@@ -1303,6 +1326,297 @@ describe("App task workspace lifecycle", () => {
     expect(
       screen.getByRole("button", { name: "Rename category: Work" }),
     ).not.toBeNull();
+  });
+
+  it("enters and exits category sorting with boundary controls", async () => {
+    const reorderCategories = vi.fn<SmartSpaceClient["reorderCategories"]>();
+    render(
+      createElement(App, {
+        client: createClient(
+          [],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          reorderCategories,
+        ),
+      }),
+    );
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+
+    const sortButton = screen.getByRole("button", { name: "Sort" });
+    fireEvent.click(sortButton);
+
+    const doneButton = screen.getByRole("button", { name: "Done" });
+    expect(doneButton).toBe(sortButton);
+    expect(doneButton.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add category",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move category earlier: Inbox",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move category later: Inbox",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move category earlier: Work",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move category later: Personal",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "Rename category: Work" }),
+    ).toBeNull();
+
+    fireEvent.click(doneButton);
+
+    expect(screen.getByRole("button", { name: "Sort" })).toBe(sortButton);
+    expect(
+      screen.queryByRole("button", {
+        name: "Move category earlier: Work",
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Rename category: Work" }),
+    ).not.toBeNull();
+    expect(reorderCategories).not.toHaveBeenCalled();
+  });
+
+  it("persists a complete category order and rebuilds dependent storage order", async () => {
+    const pendingReorder = createDeferred<readonly CategoryDto[]>();
+    const reorderCategories = vi.fn(() => pendingReorder.promise);
+    const inboxTask = createTask(
+      "10000000-0000-0000-0000-000000000054",
+      "Inbox ordered task",
+      inboxId,
+    );
+    const workTask = createTask(
+      "10000000-0000-0000-0000-000000000055",
+      "Work ordered task",
+      workId,
+    );
+    const personalTask = createTask(
+      "10000000-0000-0000-0000-000000000056",
+      "Personal ordered task",
+      personalId,
+    );
+    render(
+      createElement(App, {
+        client: createClient(
+          [inboxTask, workTask, personalTask],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          reorderCategories,
+        ),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Work 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    const moveEarlier = screen.getByRole("button", {
+      name: "Move category earlier: Personal",
+    });
+    fireEvent.click(moveEarlier);
+    fireEvent.click(moveEarlier);
+
+    expect(reorderCategories).toHaveBeenCalledTimes(1);
+    expect(reorderCategories).toHaveBeenCalledWith({
+      orderedCategoryIds: [inboxId, personalId, workId],
+    });
+    expect(
+      (screen.getByRole("button", { name: "Done" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Move category later: Inbox",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add category",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      pendingReorder.resolve([
+        { ...categories[0], position: 0 },
+        { ...categories[2], position: 1 },
+        { ...categories[1], position: 2 },
+      ]);
+      await pendingReorder.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Personal moved earlier.",
+    );
+    const movedControl = screen.getByRole("button", {
+      name: "Move category earlier: Personal",
+    });
+    expect(document.activeElement).toBe(movedControl);
+    expect(
+      screen
+        .getByRole("button", { name: "Work 1" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      Array.from(
+        (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+        (option) => option.text,
+      ),
+    ).toEqual(["Inbox", "Personal", "Work"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "All tasks 3" }));
+    const taskListText = screen.getByRole("list", {
+      name: "Task list",
+    }).textContent;
+    expect(taskListText?.indexOf("Inbox ordered task")).toBeLessThan(
+      taskListText?.indexOf("Personal ordered task") ?? -1,
+    );
+    expect(taskListText?.indexOf("Personal ordered task")).toBeLessThan(
+      taskListText?.indexOf("Work ordered task") ?? -1,
+    );
+  });
+
+  it.each([
+    [
+      "invalid input",
+      new SmartSpaceCommandError("invalid_input", "stale category order"),
+      "Category order changed. Try again.",
+    ],
+    [
+      "unknown failure",
+      new Error("offline"),
+      "Categories could not be reordered. Try again.",
+    ],
+  ])(
+    "keeps the category order after a %s reorder failure",
+    async (_case, error, message) => {
+      const reorderCategories = vi.fn(async () => {
+        throw error;
+      });
+      render(
+        createElement(App, {
+          client: createClient(
+            [],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            reorderCategories,
+          ),
+        }),
+      );
+      expect(await screen.findByText("No tasks yet")).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Move category later: Inbox" }),
+      );
+
+      expect((await screen.findByRole("alert")).textContent).toContain(message);
+      expect(reorderCategories).toHaveBeenCalledWith({
+        orderedCategoryIds: [workId, inboxId, personalId],
+      });
+      expect(
+        Array.from(
+          (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+          (option) => option.text,
+        ),
+      ).toEqual(["Inbox", "Work", "Personal"]);
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Move category later: Inbox",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    },
+  );
+
+  it("ignores a pending category reorder after the client session changes", async () => {
+    const pendingReorder = createDeferred<readonly CategoryDto[]>();
+    const staleReorderCategories = vi.fn(() => pendingReorder.promise);
+    const staleClient = createClient(
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      staleReorderCategories,
+    );
+    const currentClient = createClient([
+      createTask(
+        "10000000-0000-0000-0000-000000000057",
+        "Current reorder session",
+        inboxId,
+      ),
+    ]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move category later: Inbox" }),
+    );
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(await screen.findByText("Current reorder session")).not.toBeNull();
+
+    await act(async () => {
+      pendingReorder.resolve([
+        { ...categories[1], position: 0 },
+        { ...categories[0], position: 1 },
+        { ...categories[2], position: 2 },
+      ]);
+      await pendingReorder.promise;
+    });
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Sort" })).not.toBeNull();
+    expect(
+      Array.from(
+        (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+        (option) => option.text,
+      ),
+    ).toEqual(["Inbox", "Work", "Personal"]);
   });
 
   it("completes once, then reopens the same task from returned DTOs", async () => {

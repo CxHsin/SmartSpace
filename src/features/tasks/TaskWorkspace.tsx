@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -14,6 +15,7 @@ import {
   type MoveTaskInput,
   type RenameCategoryInput,
   type RenameTaskInput,
+  type ReorderCategoriesInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type TaskDto,
@@ -873,11 +875,17 @@ function getCreateCategoryErrorMessage(error: unknown) {
 }
 
 function CreateCategory({
+  isCategoryMutationPending,
+  isReorderingCategories,
   onCreateCategory,
+  onToggleReorderingCategories,
 }: {
-  readonly onCreateCategory: (
+  readonly isCategoryMutationPending: boolean;
+  readonly isReorderingCategories: boolean;
+  readonly onCreateCategory?: (
     input: CreateCategoryInput,
   ) => Promise<CategoryDto>;
+  readonly onToggleReorderingCategories?: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
@@ -911,7 +919,7 @@ function CreateCategory({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (submittingRef.current) {
+    if (submittingRef.current || onCreateCategory === undefined) {
       return;
     }
 
@@ -950,21 +958,49 @@ function CreateCategory({
         <p className="min-w-0 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
           Categories
         </p>
-        <button
-          aria-controls="create-category-form"
-          aria-expanded={isOpen}
-          aria-label="Add category"
-          className="category-add-trigger"
-          onClick={() => {
-            setFeedback(undefined);
-            setIsOpen(true);
-          }}
-          ref={triggerRef}
-          title="Add category"
-          type="button"
-        >
-          <span aria-hidden="true">+</span>
-        </button>
+        <div className="category-header-actions">
+          {onToggleReorderingCategories === undefined ? null : (
+            <button
+              aria-pressed={isReorderingCategories}
+              className="category-sort-trigger"
+              disabled={isCategoryMutationPending || isSubmitting}
+              onClick={() => {
+                if (isOpen) {
+                  setName("");
+                  setFeedback(undefined);
+                  setIsOpen(false);
+                }
+                onToggleReorderingCategories();
+              }}
+              title={
+                isReorderingCategories
+                  ? "Finish sorting categories"
+                  : "Sort categories"
+              }
+              type="button"
+            >
+              {isReorderingCategories ? "Done" : "Sort"}
+            </button>
+          )}
+          {onCreateCategory === undefined ? null : (
+            <button
+              aria-controls="create-category-form"
+              aria-expanded={isOpen}
+              aria-label="Add category"
+              className="category-add-trigger"
+              disabled={isCategoryMutationPending || isReorderingCategories}
+              onClick={() => {
+                setFeedback(undefined);
+                setIsOpen(true);
+              }}
+              ref={triggerRef}
+              title="Add category"
+              type="button"
+            >
+              <span aria-hidden="true">+</span>
+            </button>
+          )}
+        </div>
       </div>
       {isOpen ? (
         <form
@@ -978,7 +1014,7 @@ function CreateCategory({
           </label>
           <input
             className="category-name-input"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isCategoryMutationPending}
             id="create-category-name"
             onChange={(event) => {
               setName(event.target.value);
@@ -1000,14 +1036,18 @@ function CreateCategory({
           <div className="mt-1.5 grid grid-cols-2 gap-1.5">
             <button
               className="category-create-submit"
-              disabled={isSubmitting || name.trim().length === 0}
+              disabled={
+                isSubmitting ||
+                isCategoryMutationPending ||
+                name.trim().length === 0
+              }
               type="submit"
             >
               {isSubmitting ? "Adding..." : "Add"}
             </button>
             <button
               className="category-create-cancel"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isCategoryMutationPending}
               onClick={closeForm}
               type="button"
             >
@@ -1050,20 +1090,50 @@ function getRenameCategoryErrorMessage(error: unknown) {
   return "Category name could not be updated. Try again.";
 }
 
+function getReorderCategoriesErrorMessage(error: unknown) {
+  if (
+    error instanceof SmartSpaceCommandError &&
+    error.code === "invalid_input"
+  ) {
+    return "Category order changed. Try again.";
+  }
+
+  return "Categories could not be reordered. Try again.";
+}
+
+interface CategoryReorderFocusRequest {
+  readonly direction: -1 | 1;
+  readonly sequence: number;
+}
+
 function CategoryNavigationItem({
   category,
   count,
   isActive,
+  isCategoryMutationPending,
+  isFirst,
+  isLast,
+  isReorderingCategories,
+  onMoveEarlier,
+  onMoveLater,
   onRenameCategory,
   onSelect,
+  reorderFocusRequest,
 }: {
   readonly category: CategoryDto;
   readonly count: number;
   readonly isActive: boolean;
+  readonly isCategoryMutationPending: boolean;
+  readonly isFirst: boolean;
+  readonly isLast: boolean;
+  readonly isReorderingCategories: boolean;
+  readonly onMoveEarlier?: () => void;
+  readonly onMoveLater?: () => void;
   readonly onRenameCategory?: (
     input: RenameCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onSelect: () => void;
+  readonly reorderFocusRequest?: CategoryReorderFocusRequest;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState(category.name);
@@ -1071,6 +1141,8 @@ function CategoryNavigationItem({
   const [feedback, setFeedback] = useState<CreateFeedback>();
   const submittingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const moveEarlierRef = useRef<HTMLButtonElement>(null);
+  const moveLaterRef = useRef<HTMLButtonElement>(null);
   const renameTriggerRef = useRef<HTMLButtonElement>(null);
   const shouldRestoreFocusRef = useRef(false);
 
@@ -1083,6 +1155,34 @@ function CategoryNavigationItem({
       renameTriggerRef.current?.focus();
     }
   }, [isEditing]);
+
+  useEffect(() => {
+    if (isReorderingCategories && isEditing && !submittingRef.current) {
+      setNameDraft(category.name);
+      setFeedback(undefined);
+      setIsEditing(false);
+    }
+  }, [category.name, isEditing, isReorderingCategories]);
+
+  useEffect(() => {
+    if (reorderFocusRequest === undefined) {
+      return;
+    }
+
+    const preferredTarget =
+      reorderFocusRequest.direction < 0
+        ? moveEarlierRef.current
+        : moveLaterRef.current;
+    const fallbackTarget =
+      reorderFocusRequest.direction < 0
+        ? moveLaterRef.current
+        : moveEarlierRef.current;
+    if (preferredTarget !== null && !preferredTarget.disabled) {
+      preferredTarget.focus();
+    } else {
+      fallbackTarget?.focus();
+    }
+  }, [reorderFocusRequest]);
 
   function closeEditor() {
     if (submittingRef.current) {
@@ -1135,9 +1235,11 @@ function CategoryNavigationItem({
     <li className="category-navigation-item">
       <div
         className={
-          onRenameCategory === undefined
+          onRenameCategory === undefined && !isReorderingCategories
             ? "category-navigation-row category-navigation-row-readonly"
-            : "category-navigation-row"
+            : isReorderingCategories
+              ? "category-navigation-row category-navigation-row-reordering"
+              : "category-navigation-row"
         }
       >
         <button
@@ -1150,12 +1252,37 @@ function CategoryNavigationItem({
           <span className="truncate">{category.name}</span>
           <span className="nav-count">{count}</span>
         </button>
-        {onRenameCategory === undefined ? null : (
+        {isReorderingCategories ? (
+          <div className="category-reorder-actions">
+            <button
+              aria-label={`Move category earlier: ${category.name}`}
+              className="category-reorder-button"
+              disabled={isCategoryMutationPending || isFirst}
+              onClick={onMoveEarlier}
+              ref={moveEarlierRef}
+              title="Move category earlier"
+              type="button"
+            >
+              <span aria-hidden="true">^</span>
+            </button>
+            <button
+              aria-label={`Move category later: ${category.name}`}
+              className="category-reorder-button"
+              disabled={isCategoryMutationPending || isLast}
+              onClick={onMoveLater}
+              ref={moveLaterRef}
+              title="Move category later"
+              type="button"
+            >
+              <span aria-hidden="true">v</span>
+            </button>
+          </div>
+        ) : onRenameCategory === undefined ? null : (
           <button
             aria-expanded={isEditing}
             aria-label={`Rename category: ${category.name}`}
             className="category-rename-trigger"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isCategoryMutationPending}
             onClick={() => {
               setNameDraft(category.name);
               setFeedback(undefined);
@@ -1169,7 +1296,7 @@ function CategoryNavigationItem({
           </button>
         )}
       </div>
-      {isEditing ? (
+      {isEditing && !isReorderingCategories ? (
         <form
           aria-label={`Rename category: ${category.name}`}
           className="category-rename-form"
@@ -1180,7 +1307,7 @@ function CategoryNavigationItem({
           </label>
           <input
             className="category-rename-input"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isCategoryMutationPending}
             id={`category-name-${category.id}`}
             onChange={(event) => {
               setNameDraft(event.target.value);
@@ -1204,6 +1331,7 @@ function CategoryNavigationItem({
               className="category-rename-save"
               disabled={
                 isSubmitting ||
+                isCategoryMutationPending ||
                 nameDraft.trim().length === 0 ||
                 nameDraft.trim() === category.name
               }
@@ -1214,7 +1342,7 @@ function CategoryNavigationItem({
             <button
               aria-label={`Cancel category rename: ${category.name}`}
               className="category-rename-cancel"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isCategoryMutationPending}
               onClick={closeEditor}
               type="button"
             >
@@ -1246,6 +1374,7 @@ export function TaskWorkspace({
   onMoveTask,
   onRenameCategory,
   onRenameTask,
+  onReorderCategories,
   onSetTaskDueDate,
   onSetTaskStatus,
 }: {
@@ -1259,12 +1388,25 @@ export function TaskWorkspace({
     input: RenameCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
+  readonly onReorderCategories?: (
+    input: ReorderCategoriesInput,
+  ) => Promise<readonly CategoryDto[]>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
 }) {
   const [selectedViewId, setSelectedViewId] = useState(ALL_TASKS);
   const [viewHeadingFocusVersion, setViewHeadingFocusVersion] = useState(0);
+  const [isReorderingCategories, setIsReorderingCategories] = useState(false);
+  const [isCategoryMutationPending, setIsCategoryMutationPending] =
+    useState(false);
+  const [categoryReorderFeedback, setCategoryReorderFeedback] =
+    useState<CreateFeedback>();
+  const [categoryReorderFocus, setCategoryReorderFocus] = useState<
+    (CategoryReorderFocusRequest & { readonly categoryId: string }) | undefined
+  >();
   const today = useLocalCalendarDate();
+  const categoryMutationPendingRef = useRef(false);
+  const categoryReorderFocusSequenceRef = useRef(0);
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
   const pendingViewHeadingFocusRef = useRef<
     { readonly taskId: string; readonly viewId: string } | undefined
@@ -1276,6 +1418,88 @@ export function TaskWorkspace({
   const taskCounts = useMemo(
     () => countTasksByCategory(data.tasks, today),
     [data.tasks, today],
+  );
+  const runCategoryMutation = useCallback(
+    async <Result,>(operation: () => Promise<Result>) => {
+      if (categoryMutationPendingRef.current) {
+        throw new Error("Another category operation is already in progress.");
+      }
+
+      categoryMutationPendingRef.current = true;
+      setIsCategoryMutationPending(true);
+      try {
+        return await operation();
+      } finally {
+        categoryMutationPendingRef.current = false;
+        setIsCategoryMutationPending(false);
+      }
+    },
+    [],
+  );
+  const createCategoryForWorkspace = useMemo(
+    () =>
+      onCreateCategory === undefined
+        ? undefined
+        : (input: CreateCategoryInput) =>
+            runCategoryMutation(() => onCreateCategory(input)),
+    [onCreateCategory, runCategoryMutation],
+  );
+  const renameCategoryForWorkspace = useMemo(
+    () =>
+      onRenameCategory === undefined
+        ? undefined
+        : (input: RenameCategoryInput) =>
+            runCategoryMutation(() => onRenameCategory(input)),
+    [onRenameCategory, runCategoryMutation],
+  );
+  const reorderCategory = useCallback(
+    async (categoryId: string, offset: -1 | 1) => {
+      if (onReorderCategories === undefined) {
+        return;
+      }
+
+      const sourceIndex = data.categories.findIndex(
+        (category) => category.id === categoryId,
+      );
+      const targetIndex = sourceIndex + offset;
+      if (
+        sourceIndex < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= data.categories.length
+      ) {
+        return;
+      }
+
+      const categoryName = data.categories[sourceIndex].name;
+      const orderedCategoryIds = data.categories.map((category) => category.id);
+      [orderedCategoryIds[sourceIndex], orderedCategoryIds[targetIndex]] = [
+        orderedCategoryIds[targetIndex],
+        orderedCategoryIds[sourceIndex],
+      ];
+      setCategoryReorderFeedback(undefined);
+
+      try {
+        await runCategoryMutation(() =>
+          onReorderCategories({ orderedCategoryIds }),
+        );
+        setCategoryReorderFeedback({
+          kind: "success",
+          message: `${categoryName} moved ${offset < 0 ? "earlier" : "later"}.`,
+        });
+        categoryReorderFocusSequenceRef.current += 1;
+        setCategoryReorderFocus({
+          categoryId,
+          direction: offset,
+          sequence: categoryReorderFocusSequenceRef.current,
+        });
+      } catch (error) {
+        setCategoryReorderFeedback({
+          kind: "error",
+          message: getReorderCategoriesErrorMessage(error),
+        });
+      }
+    },
+    [data.categories, onReorderCategories, runCategoryMutation],
   );
   const effectiveViewId =
     selectedViewId === ALL_TASKS ||
@@ -1423,26 +1647,66 @@ export function TaskWorkspace({
         </button>
 
         <div className="mt-5">
-          {onCreateCategory === undefined ? (
+          {onCreateCategory === undefined &&
+          onReorderCategories === undefined ? (
             <p className="px-2 pb-2 text-[0.6875rem] font-semibold uppercase text-[var(--text-faint)]">
               Categories
             </p>
           ) : (
-            <CreateCategory onCreateCategory={onCreateCategory} />
+            <CreateCategory
+              isCategoryMutationPending={isCategoryMutationPending}
+              isReorderingCategories={isReorderingCategories}
+              onCreateCategory={createCategoryForWorkspace}
+              onToggleReorderingCategories={
+                onReorderCategories === undefined
+                  ? undefined
+                  : () => {
+                      setCategoryReorderFeedback(undefined);
+                      setIsReorderingCategories((current) => !current);
+                    }
+              }
+            />
           )}
         </div>
         <ul className="space-y-0.5">
-          {data.categories.map((category) => (
+          {data.categories.map((category, index) => (
             <CategoryNavigationItem
               category={category}
               count={taskCounts.byCategory.get(category.id) ?? 0}
               isActive={effectiveViewId === category.id}
+              isCategoryMutationPending={isCategoryMutationPending}
+              isFirst={index === 0}
+              isLast={index === data.categories.length - 1}
+              isReorderingCategories={isReorderingCategories}
               key={category.id}
-              onRenameCategory={onRenameCategory}
+              onMoveEarlier={() => {
+                void reorderCategory(category.id, -1);
+              }}
+              onMoveLater={() => {
+                void reorderCategory(category.id, 1);
+              }}
+              onRenameCategory={renameCategoryForWorkspace}
               onSelect={() => setSelectedViewId(category.id)}
+              reorderFocusRequest={
+                categoryReorderFocus?.categoryId === category.id
+                  ? categoryReorderFocus
+                  : undefined
+              }
             />
           ))}
         </ul>
+        {categoryReorderFeedback === undefined ? null : (
+          <p
+            className={
+              categoryReorderFeedback.kind === "error"
+                ? "category-reorder-feedback text-[var(--status-danger)]"
+                : "category-reorder-feedback text-[var(--status-success)]"
+            }
+            role={categoryReorderFeedback.kind === "error" ? "alert" : "status"}
+          >
+            {categoryReorderFeedback.message}
+          </p>
+        )}
       </nav>
 
       <div className="grid min-h-0 grid-rows-[auto_auto_1fr] bg-[var(--surface-raised)]">

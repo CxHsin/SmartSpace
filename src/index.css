@@ -121,10 +121,12 @@ button {
 .category-name-input:focus-visible,
 .category-create-submit:focus-visible,
 .category-create-cancel:focus-visible,
+.category-sort-trigger:focus-visible,
 .category-rename-trigger:focus-visible,
 .category-rename-input:focus-visible,
 .category-rename-save:focus-visible,
-.category-rename-cancel:focus-visible {
+.category-rename-cancel:focus-visible,
+.category-reorder-button:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
 }
@@ -142,6 +144,32 @@ button {
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
+}
+
+.category-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.category-sort-trigger {
+  min-width: 2.25rem;
+  min-height: 1.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0.125rem 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.category-sort-trigger:hover:not(:disabled),
+.category-sort-trigger[aria-pressed="true"] {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-primary);
 }
 
 .category-add-trigger:hover,
@@ -222,6 +250,36 @@ button {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.category-navigation-row-reordering {
+  grid-template-columns: minmax(0, 1fr) 3rem;
+}
+
+.category-reorder-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1.375rem);
+  gap: 0.125rem;
+}
+
+.category-reorder-button {
+  display: grid;
+  width: 1.375rem;
+  height: 1.5rem;
+  place-content: center;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.category-reorder-button:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  color: var(--text-primary);
+}
+
 .category-rename-trigger {
   display: grid;
   width: 1.5rem;
@@ -295,13 +353,22 @@ button {
 .category-rename-trigger:disabled,
 .category-rename-input:disabled,
 .category-rename-save:disabled,
-.category-rename-cancel:disabled {
+.category-rename-cancel:disabled,
+.category-sort-trigger:disabled,
+.category-reorder-button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
 
 .category-rename-feedback {
   margin: 0.125rem 0.5rem 0.375rem;
+  overflow-wrap: anywhere;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+
+.category-reorder-feedback {
+  margin: 0.375rem 0.5rem;
   overflow-wrap: anywhere;
   font-size: 0.6875rem;
   line-height: 1rem;

@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-- 模块 44（分类重命名交互）已提交并推送；下一模块待登记。
+- 模块 45（分类手动排序交互）已完成实现与独立审批，待提交并推送。
 
 ## Current Goal
 
@@ -71,6 +71,7 @@
 - **模块 42：前端可执行文件选择 IPC 客户端** 已完成实现与审查：可注入 `SmartSpaceClient` 新增必需的 `pickApplicationExecutable(): Promise<string | null>`，默认客户端精确调用 `pick_application_executable` 且不传 args，选中路径与取消 `null` 原样返回，`invalid_input` 和未知拒绝复用统一 `SmartSpaceCommandError` 边界；App 与 workspace loader 的全部手写客户端替身显式拒绝意外 picker 调用。新增 4 条客户端测试；89 条前端测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；与现有 IPC 方法一致，运行时响应形状由类型化 Tauri 边界保证，当前不重复解码；模块提交 `11a03f3` 已推送到 `origin/main`。
 - **模块 43：任务标题重命名交互** 已完成实现与审查：任务行新增可访问的标题 trigger 与内联编辑器，通过既有 `rename_task` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、保存后焦点恢复、结构化错误保留草稿，以及标题/状态/日期/分类共享同步行锁。App 使用函数式状态替换并依靠 keyed client session 隔离旧请求。50 条 App 聚焦测试、95 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的长标题、无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `defbeaa` 已推送到 `origin/main`。
 - **模块 44：分类重命名交互** 已完成实现与审查：分类导航新增独立重命名 trigger 与内联编辑器，通过既有 `rename_category` IPC 持久化原始草稿并只合并 command 返回 DTO；支持打开时聚焦/全选、空白及规范化未变化禁用、Enter、Escape、Cancel、同步重复提交锁、保存后焦点恢复和四类错误保留草稿。名称更新会同步当前分类标题、导航、任务分类展示和新任务分类选择器，keyed client session 隔离旧请求。57 条 App 聚焦测试、102 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 的超长无断点分类名、成功与取消流程视觉验收无重叠、裁切或横向溢出，控制台无错误。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交 `a3e4a48` 已推送到 `origin/main`。
+- **模块 45：分类手动排序交互** 已完成实现与审查：分类导航新增 Sort/Done 显式排序模式和首尾边界禁用的上移/下移控制，每次通过既有 `reorder_categories` IPC 提交包含收件箱的完整 ID 序列，不做乐观更新；以 command 返回的完整 `CategoryDto[]` 同步导航、当前分类和任务分类选择器，并按返回 position 重建 All 视图任务存储顺序。分类创建、重命名和排序共享同步写锁；成功后提供 live feedback 并把焦点保留在同方向或边界反方向控制上，错误保留原顺序，keyed client session 隔离旧请求。62 条 App 聚焦测试、107 条前端全量测试、112 条 Rust 测试、前端/Rust 全量门禁及 Tauri release 构建通过；1120x720、800x520、640x700 视觉验收无重叠、裁切或页面溢出，浏览器日志无 warning/error。`gpt-5.6-sol medium` 独立 review 结果为 `APPROVE`，无 P1/P2；模块提交待推送后登记。
 
 ## In Progress
 
@@ -78,7 +79,8 @@
 
 ## Next Up
 
-1. Upcoming 与应用配置重复规则获得用户确认后，再登记对应视图或持久化模块。
+1. 提交并推送模块 45，随后单独登记实现提交哈希。
+2. 登记并实现下一个不依赖开放产品问题的最小模块。
 
 ## Open Questions
 

@@ -14,6 +14,7 @@ import {
   type MoveTaskInput,
   type RenameCategoryInput,
   type RenameTaskInput,
+  type ReorderCategoriesInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
   type SmartSpaceClient,
@@ -170,6 +171,17 @@ function replaceCategory(
   };
 }
 
+function replaceCategoriesInStorageOrder(
+  data: TaskWorkspaceData,
+  categories: readonly CategoryDto[],
+): TaskWorkspaceData {
+  return {
+    ...data,
+    categories,
+    tasks: sortTasksInStorageOrder(categories, data.tasks),
+  };
+}
+
 function TaskLoadingState({
   regionRef,
 }: {
@@ -260,6 +272,7 @@ export function WorkspaceBody({
   onMoveTask,
   onRenameCategory,
   onRenameTask,
+  onReorderCategories,
   onSetTaskDueDate,
   onSetTaskStatus,
   loadingRegionRef,
@@ -275,6 +288,9 @@ export function WorkspaceBody({
     input: RenameCategoryInput,
   ) => Promise<CategoryDto>;
   readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
+  readonly onReorderCategories?: (
+    input: ReorderCategoriesInput,
+  ) => Promise<readonly CategoryDto[]>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
   readonly loadingRegionRef?: Ref<HTMLElement>;
@@ -295,6 +311,7 @@ export function WorkspaceBody({
           onMoveTask={onMoveTask}
           onRenameCategory={onRenameCategory}
           onRenameTask={onRenameTask}
+          onReorderCategories={onReorderCategories}
           onSetTaskDueDate={onSetTaskDueDate}
           onSetTaskStatus={onSetTaskStatus}
         />
@@ -396,6 +413,25 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
     [client],
   );
 
+  const reorderCategories = useCallback(
+    async (input: ReorderCategoriesInput) => {
+      const reorderedCategories = await client.reorderCategories(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: replaceCategoriesInStorageOrder(
+                current.data,
+                reorderedCategories,
+              ),
+            }
+          : current,
+      );
+      return reorderedCategories;
+    },
+    [client],
+  );
+
   const setTaskStatus = useCallback(
     async (input: SetTaskStatusInput) => {
       const updatedTask = await client.setTaskStatus(input);
@@ -493,6 +529,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
         onMoveTask={moveTask}
         onRenameCategory={renameCategory}
         onRenameTask={renameTask}
+        onReorderCategories={reorderCategories}
         onSetTaskDueDate={setTaskDueDate}
         onSetTaskStatus={setTaskStatus}
         onRetry={() => {
