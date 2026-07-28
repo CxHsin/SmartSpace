@@ -12,6 +12,7 @@ import {
   type CreateCategoryInput,
   type CreateTaskInput,
   type MoveTaskInput,
+  type RenameCategoryInput,
   type RenameTaskInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
@@ -1031,11 +1032,219 @@ function CreateCategory({
   );
 }
 
+function getRenameCategoryErrorMessage(error: unknown) {
+  if (error instanceof SmartSpaceCommandError) {
+    if (error.code === "invalid_input") {
+      return "Enter a valid category name.";
+    }
+
+    if (error.code === "duplicate_category_name") {
+      return "A category with this name already exists.";
+    }
+
+    if (error.code === "category_not_found") {
+      return "This category is no longer available.";
+    }
+  }
+
+  return "Category name could not be updated. Try again.";
+}
+
+function CategoryNavigationItem({
+  category,
+  count,
+  isActive,
+  onRenameCategory,
+  onSelect,
+}: {
+  readonly category: CategoryDto;
+  readonly count: number;
+  readonly isActive: boolean;
+  readonly onRenameCategory?: (
+    input: RenameCategoryInput,
+  ) => Promise<CategoryDto>;
+  readonly onSelect: () => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState(category.name);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<CreateFeedback>();
+  const submittingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const renameTriggerRef = useRef<HTMLButtonElement>(null);
+  const shouldRestoreFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (isEditing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    } else if (shouldRestoreFocusRef.current) {
+      shouldRestoreFocusRef.current = false;
+      renameTriggerRef.current?.focus();
+    }
+  }, [isEditing]);
+
+  function closeEditor() {
+    if (submittingRef.current) {
+      return;
+    }
+
+    setNameDraft(category.name);
+    setFeedback(undefined);
+    shouldRestoreFocusRef.current = true;
+    setIsEditing(false);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedName = nameDraft.trim();
+    if (
+      submittingRef.current ||
+      onRenameCategory === undefined ||
+      normalizedName.length === 0 ||
+      normalizedName === category.name
+    ) {
+      return;
+    }
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setFeedback(undefined);
+
+    try {
+      const updatedCategory = await onRenameCategory({
+        categoryId: category.id,
+        name: nameDraft,
+      });
+      setNameDraft(updatedCategory.name);
+      shouldRestoreFocusRef.current = true;
+      setIsEditing(false);
+      setFeedback({ kind: "success", message: "Category renamed." });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        message: getRenameCategoryErrorMessage(error),
+      });
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <li className="category-navigation-item">
+      <div
+        className={
+          onRenameCategory === undefined
+            ? "category-navigation-row category-navigation-row-readonly"
+            : "category-navigation-row"
+        }
+      >
+        <button
+          aria-current={isActive ? "page" : undefined}
+          className="nav-item"
+          disabled={isSubmitting}
+          onClick={onSelect}
+          type="button"
+        >
+          <span className="truncate">{category.name}</span>
+          <span className="nav-count">{count}</span>
+        </button>
+        {onRenameCategory === undefined ? null : (
+          <button
+            aria-expanded={isEditing}
+            aria-label={`Rename category: ${category.name}`}
+            className="category-rename-trigger"
+            disabled={isSubmitting}
+            onClick={() => {
+              setNameDraft(category.name);
+              setFeedback(undefined);
+              setIsEditing(true);
+            }}
+            ref={renameTriggerRef}
+            title="Rename category"
+            type="button"
+          >
+            <span aria-hidden="true">Aa</span>
+          </button>
+        )}
+      </div>
+      {isEditing ? (
+        <form
+          aria-label={`Rename category: ${category.name}`}
+          className="category-rename-form"
+          onSubmit={handleSubmit}
+        >
+          <label className="sr-only" htmlFor={`category-name-${category.id}`}>
+            Name for {category.name}
+          </label>
+          <input
+            className="category-rename-input"
+            disabled={isSubmitting}
+            id={`category-name-${category.id}`}
+            onChange={(event) => {
+              setNameDraft(event.target.value);
+              if (feedback?.kind === "error") {
+                setFeedback(undefined);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeEditor();
+              }
+            }}
+            ref={inputRef}
+            type="text"
+            value={nameDraft}
+          />
+          <div className="category-rename-actions">
+            <button
+              aria-label={`Save category name: ${category.name}`}
+              className="category-rename-save"
+              disabled={
+                isSubmitting ||
+                nameDraft.trim().length === 0 ||
+                nameDraft.trim() === category.name
+              }
+              type="submit"
+            >
+              {isSubmitting ? "Saving..." : "Save"}
+            </button>
+            <button
+              aria-label={`Cancel category rename: ${category.name}`}
+              className="category-rename-cancel"
+              disabled={isSubmitting}
+              onClick={closeEditor}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
+      {feedback === undefined ? null : (
+        <p
+          className={
+            feedback.kind === "error"
+              ? "category-rename-feedback text-[var(--status-danger)]"
+              : "category-rename-feedback text-[var(--status-success)]"
+          }
+          role={feedback.kind === "error" ? "alert" : "status"}
+        >
+          {feedback.message}
+        </p>
+      )}
+    </li>
+  );
+}
+
 export function TaskWorkspace({
   data,
   onCreateCategory,
   onCreateTask,
   onMoveTask,
+  onRenameCategory,
   onRenameTask,
   onSetTaskDueDate,
   onSetTaskStatus,
@@ -1046,6 +1255,9 @@ export function TaskWorkspace({
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
+  readonly onRenameCategory?: (
+    input: RenameCategoryInput,
+  ) => Promise<CategoryDto>;
   readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
@@ -1221,21 +1433,14 @@ export function TaskWorkspace({
         </div>
         <ul className="space-y-0.5">
           {data.categories.map((category) => (
-            <li key={category.id}>
-              <button
-                aria-current={
-                  effectiveViewId === category.id ? "page" : undefined
-                }
-                className="nav-item"
-                onClick={() => setSelectedViewId(category.id)}
-                type="button"
-              >
-                <span className="truncate">{category.name}</span>
-                <span className="nav-count">
-                  {taskCounts.byCategory.get(category.id) ?? 0}
-                </span>
-              </button>
-            </li>
+            <CategoryNavigationItem
+              category={category}
+              count={taskCounts.byCategory.get(category.id) ?? 0}
+              isActive={effectiveViewId === category.id}
+              key={category.id}
+              onRenameCategory={onRenameCategory}
+              onSelect={() => setSelectedViewId(category.id)}
+            />
           ))}
         </ul>
       </nav>

@@ -117,6 +117,7 @@ function createClient(
   setTaskDueDate: SmartSpaceClient["setTaskDueDate"] = unexpectedSetTaskDueDate,
   moveTask: SmartSpaceClient["moveTask"] = unexpectedMoveTask,
   renameTask: SmartSpaceClient["renameTask"] = unexpectedRenameTask,
+  renameCategory: SmartSpaceClient["renameCategory"] = unexpectedRenameCategory,
 ): SmartSpaceClient {
   return {
     pickApplicationExecutable: unexpectedPickApplicationExecutable,
@@ -130,7 +131,7 @@ function createClient(
     reorderTasks: unexpectedReorderTasks,
     deleteTask: unexpectedDeleteTask,
     createCategory,
-    renameCategory: unexpectedRenameCategory,
+    renameCategory,
     reorderCategories: unexpectedReorderCategories,
     deleteCategory: unexpectedDeleteCategory,
   };
@@ -1042,6 +1043,266 @@ describe("App task workspace lifecycle", () => {
         (option) => option.text,
       ),
     ).toEqual(["Inbox", "Work", "Personal"]);
+  });
+
+  it("renames a category once from the backend DTO and updates its consumers", async () => {
+    const pendingRename = createDeferred<CategoryDto>();
+    const renameCategory = vi.fn(() => pendingRename.promise);
+    const task = createTask(
+      "10000000-0000-0000-0000-000000000052",
+      "Categorized task",
+      workId,
+    );
+    render(
+      createElement(App, {
+        client: createClient(
+          [task],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          renameCategory,
+        ),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Work 1" }));
+    const trigger = screen.getByRole("button", {
+      name: "Rename category: Work",
+    });
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("Name for Work") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("Work".length);
+    const saveButton = screen.getByRole("button", {
+      name: "Save category name: Work",
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "  Work  " } });
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "  Backend Work  " } });
+    expect(saveButton.disabled).toBe(false);
+    const form = screen.getByRole("form", { name: "Rename category: Work" });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(renameCategory).toHaveBeenCalledTimes(1);
+    expect(renameCategory).toHaveBeenCalledWith({
+      categoryId: workId,
+      name: "  Backend Work  ",
+    });
+    expect(saveButton.disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Work 1" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect((trigger as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      pendingRename.resolve({
+        ...categories[1],
+        name: "Backend Work",
+      });
+      await pendingRename.promise;
+    });
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "Category renamed.",
+    );
+    expect(
+      screen.getByRole("heading", { name: "Backend Work" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Backend Work 1" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Edit category for task: Categorized task",
+      }).textContent,
+    ).toBe("Backend Work");
+    expect(
+      Array.from(
+        (screen.getByLabelText("Task category") as HTMLSelectElement).options,
+        (option) => option.text,
+      ),
+    ).toEqual(["Inbox", "Backend Work", "Personal"]);
+    const renamedTrigger = screen.getByRole("button", {
+      name: "Rename category: Backend Work",
+    });
+    expect(document.activeElement).toBe(renamedTrigger);
+  });
+
+  it("cancels a category rename with Escape or Cancel and restores focus", async () => {
+    const renameCategory = vi.fn<SmartSpaceClient["renameCategory"]>();
+    render(
+      createElement(App, {
+        client: createClient(
+          [],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          renameCategory,
+        ),
+      }),
+    );
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+
+    const trigger = screen.getByRole("button", {
+      name: "Rename category: Inbox",
+    });
+    fireEvent.click(trigger);
+    const input = screen.getByLabelText("Name for Inbox") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("Inbox".length);
+    const saveButton = screen.getByRole("button", {
+      name: "Save category name: Inbox",
+    }) as HTMLButtonElement;
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "Discard with Escape" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(screen.queryByLabelText("Name for Inbox")).toBeNull();
+    expect(renameCategory).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    const reopenedInput = screen.getByLabelText(
+      "Name for Inbox",
+    ) as HTMLInputElement;
+    expect(reopenedInput.value).toBe("Inbox");
+    fireEvent.change(reopenedInput, {
+      target: { value: "Discard with Cancel" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Cancel category rename: Inbox" }),
+    );
+
+    expect(screen.queryByLabelText("Name for Inbox")).toBeNull();
+    expect(renameCategory).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it.each([
+    [
+      "invalid input",
+      new SmartSpaceCommandError("invalid_input", "invalid category"),
+      "Enter a valid category name.",
+    ],
+    [
+      "duplicate category",
+      new SmartSpaceCommandError(
+        "duplicate_category_name",
+        "duplicate category",
+      ),
+      "A category with this name already exists.",
+    ],
+    [
+      "missing category",
+      new SmartSpaceCommandError("category_not_found", "missing category"),
+      "This category is no longer available.",
+    ],
+    [
+      "unknown failure",
+      new Error("offline"),
+      "Category name could not be updated. Try again.",
+    ],
+  ])(
+    "retains the category rename draft after %s",
+    async (_case, error, message) => {
+      const renameCategory = vi.fn(async () => {
+        throw error;
+      });
+      render(
+        createElement(App, {
+          client: createClient(
+            [],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            renameCategory,
+          ),
+        }),
+      );
+      expect(await screen.findByText("No tasks yet")).not.toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Rename category: Work" }),
+      );
+      const input = screen.getByLabelText("Name for Work");
+      fireEvent.change(input, { target: { value: "Retained rename" } });
+      fireEvent.submit(
+        screen.getByRole("form", { name: "Rename category: Work" }),
+      );
+
+      expect((await screen.findByRole("alert")).textContent).toContain(message);
+      expect((input as HTMLInputElement).value).toBe("Retained rename");
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Save category name: Work",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    },
+  );
+
+  it("ignores a pending category rename after the client session changes", async () => {
+    const pendingRename = createDeferred<CategoryDto>();
+    const staleRenameCategory = vi.fn(() => pendingRename.promise);
+    const staleClient = createClient(
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      staleRenameCategory,
+    );
+    const currentClient = createClient([
+      createTask(
+        "10000000-0000-0000-0000-000000000053",
+        "Current rename category session",
+        workId,
+      ),
+    ]);
+    const rendered = render(createElement(App, { client: staleClient }));
+
+    expect(await screen.findByText("No tasks yet")).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rename category: Work" }),
+    );
+    fireEvent.change(screen.getByLabelText("Name for Work"), {
+      target: { value: "Stale Work" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save category name: Work" }),
+    );
+    rendered.rerender(createElement(App, { client: currentClient }));
+    expect(
+      await screen.findByText("Current rename category session"),
+    ).not.toBeNull();
+
+    await act(async () => {
+      pendingRename.resolve({ ...categories[1], name: "Stale Work" });
+      await pendingRename.promise;
+    });
+
+    expect(screen.queryByText("Stale Work")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Rename category: Work" }),
+    ).not.toBeNull();
   });
 
   it("completes once, then reopens the same task from returned DTOs", async () => {

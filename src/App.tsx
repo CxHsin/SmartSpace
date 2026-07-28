@@ -12,6 +12,7 @@ import {
   type CreateCategoryInput,
   type CreateTaskInput,
   type MoveTaskInput,
+  type RenameCategoryInput,
   type RenameTaskInput,
   type SetTaskDueDateInput,
   type SetTaskStatusInput,
@@ -156,6 +157,19 @@ function replaceTask(
   };
 }
 
+function replaceCategory(
+  data: TaskWorkspaceData,
+  categoryId: string,
+  updatedCategory: CategoryDto,
+): TaskWorkspaceData {
+  return {
+    ...data,
+    categories: data.categories.map((category) =>
+      category.id === categoryId ? updatedCategory : category,
+    ),
+  };
+}
+
 function TaskLoadingState({
   regionRef,
 }: {
@@ -244,6 +258,7 @@ export function WorkspaceBody({
   onCreateCategory,
   onCreateTask,
   onMoveTask,
+  onRenameCategory,
   onRenameTask,
   onSetTaskDueDate,
   onSetTaskStatus,
@@ -256,6 +271,9 @@ export function WorkspaceBody({
   ) => Promise<CategoryDto>;
   readonly onCreateTask?: (input: CreateTaskInput) => Promise<TaskDto>;
   readonly onMoveTask?: (input: MoveTaskInput) => Promise<TaskDto>;
+  readonly onRenameCategory?: (
+    input: RenameCategoryInput,
+  ) => Promise<CategoryDto>;
   readonly onRenameTask?: (input: RenameTaskInput) => Promise<TaskDto>;
   readonly onSetTaskDueDate?: (input: SetTaskDueDateInput) => Promise<TaskDto>;
   readonly onSetTaskStatus?: (input: SetTaskStatusInput) => Promise<TaskDto>;
@@ -275,6 +293,7 @@ export function WorkspaceBody({
           onCreateCategory={onCreateCategory}
           onCreateTask={onCreateTask}
           onMoveTask={onMoveTask}
+          onRenameCategory={onRenameCategory}
           onRenameTask={onRenameTask}
           onSetTaskDueDate={onSetTaskDueDate}
           onSetTaskStatus={onSetTaskStatus}
@@ -353,6 +372,26 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
           : current,
       );
       return createdCategory;
+    },
+    [client],
+  );
+
+  const renameCategory = useCallback(
+    async (input: RenameCategoryInput) => {
+      const updatedCategory = await client.renameCategory(input);
+      setWorkspace((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: replaceCategory(
+                current.data,
+                input.categoryId,
+                updatedCategory,
+              ),
+            }
+          : current,
+      );
+      return updatedCategory;
     },
     [client],
   );
@@ -452,6 +491,7 @@ function AppSession({ client }: { readonly client: SmartSpaceClient }) {
         onCreateCategory={createCategory}
         onCreateTask={createTask}
         onMoveTask={moveTask}
+        onRenameCategory={renameCategory}
         onRenameTask={renameTask}
         onSetTaskDueDate={setTaskDueDate}
         onSetTaskStatus={setTaskStatus}
