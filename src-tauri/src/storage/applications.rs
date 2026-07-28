@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection, TransactionBehavior};
 use uuid::Uuid;
 
 use super::{Database, StorageError};
@@ -10,6 +10,41 @@ use crate::domain::{
 impl Database {
     pub fn list_applications(&self) -> Result<Vec<ApplicationConfig>, StorageError> {
         list_applications(&self.connection)
+    }
+
+    pub fn create_application(
+        &mut self,
+        display_name: impl Into<String>,
+        executable_path: impl Into<String>,
+        icon_cache_key: Option<String>,
+    ) -> Result<ApplicationConfig, StorageError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = list_applications(&transaction)?;
+        let position = i64::try_from(existing.len()).map_err(|_| {
+            corrupt_application_store("application count exceeds supported position range")
+        })?;
+        let application =
+            ApplicationConfig::new(display_name, executable_path, icon_cache_key, position)?;
+
+        transaction.execute(
+            "INSERT INTO applications
+             (id, display_name, executable_path, icon_cache_key, position)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                application.id().as_uuid().to_string(),
+                application.display_name().as_str(),
+                application.executable_path().as_str(),
+                application
+                    .icon_cache_key()
+                    .map(ApplicationIconCacheKey::as_str),
+                application.position().get(),
+            ],
+        )?;
+        transaction.commit()?;
+
+        Ok(application)
     }
 }
 
@@ -119,10 +154,17 @@ fn map_application_read_error(error: rusqlite::Error) -> StorageError {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        sync::{Arc, Barrier},
+        thread,
+    };
+
     use rusqlite::{params, Connection};
+    use uuid::Uuid;
 
     use super::Database;
-    use crate::storage::StorageError;
+    use crate::{domain::DomainError, storage::StorageError};
 
     #[test]
     fn empty_application_store_returns_an_empty_list() {
@@ -176,6 +218,141 @@ mod tests {
         assert_eq!(applications[1].display_name().as_str(), "Editor");
         assert_eq!(applications[1].icon_cache_key(), None);
         assert_eq!(applications[1].position().get(), 1);
+    }
+
+    #[test]
+    fn applications_are_normalized_appended_and_persisted() {
+        let path = temporary_database_path();
+        let (terminal, editor) = {
+            let mut database = Database::open(&path).unwrap();
+            let terminal = database
+                .create_application(
+                    "  Terminal  ",
+                    r"C:\Tools\Terminal.EXE",
+                    Some("  terminal-icon  ".to_owned()),
+                )
+                .unwrap();
+            let editor = database
+                .create_application("Editor", r"C:\Tools\Editor.exe", None)
+                .unwrap();
+
+            assert_eq!(terminal.display_name().as_str(), "Terminal");
+            assert_eq!(
+                terminal.executable_path().as_str(),
+                r"C:\Tools\Terminal.EXE"
+            );
+            assert_eq!(terminal.icon_cache_key().unwrap().as_str(), "terminal-icon");
+            assert_eq!(terminal.position().get(), 0);
+            assert_eq!(editor.position().get(), 1);
+            assert_ne!(terminal.id(), editor.id());
+            (terminal, editor)
+        };
+
+        let database = Database::open(&path).unwrap();
+        assert_eq!(
+            database.list_applications().unwrap(),
+            vec![terminal, editor]
+        );
+        drop(database);
+        remove_database_files(&path);
+    }
+
+    #[test]
+    fn invalid_application_input_does_not_write() {
+        let mut database = Database::open_in_memory().unwrap();
+
+        for (display_name, executable_path, icon_cache_key, expected) in [
+            (
+                "  ",
+                r"C:\Tools\Blank.exe",
+                None,
+                DomainError::EmptyApplicationDisplayName,
+            ),
+            (
+                "Relative",
+                r"Tools\Relative.exe",
+                None,
+                DomainError::ApplicationExecutablePathNotAbsolute,
+            ),
+            (
+                "Blank icon",
+                r"C:\Tools\BlankIcon.exe",
+                Some(" \t ".to_owned()),
+                DomainError::EmptyApplicationIconCacheKey,
+            ),
+        ] {
+            match database
+                .create_application(display_name, executable_path, icon_cache_key)
+                .unwrap_err()
+            {
+                StorageError::Domain(actual) => assert_eq!(actual, expected),
+                other => panic!("expected domain validation error, got {other:?}"),
+            }
+            assert!(database.list_applications().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn corrupt_application_store_rejects_creation_without_writing() {
+        let mut database = Database::open_in_memory().unwrap();
+        insert_application(
+            &database.connection,
+            "40000000-0000-0000-0000-000000000001",
+            "Existing",
+            r"C:\Tools\Existing.exe",
+            None,
+            1,
+        );
+        let before = stored_application_rows(&database.connection);
+
+        assert!(matches!(
+            database.create_application("New", r"C:\Tools\New.exe", None),
+            Err(StorageError::CorruptApplicationStore { .. })
+        ));
+        assert_eq!(stored_application_rows(&database.connection), before);
+    }
+
+    #[test]
+    fn concurrent_creates_receive_distinct_contiguous_positions() {
+        let path = temporary_database_path();
+        drop(Database::open(&path).unwrap());
+        let barrier = Arc::new(Barrier::new(2));
+        let workers: Vec<_> = [("Terminal", "Terminal.exe"), ("Editor", "Editor.exe")]
+            .into_iter()
+            .map(|(display_name, executable_name)| {
+                let path = path.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    let mut database = Database::open(path).unwrap();
+                    barrier.wait();
+                    database
+                        .create_application(
+                            display_name,
+                            format!(r"C:\Tools\{executable_name}"),
+                            None,
+                        )
+                        .unwrap()
+                })
+            })
+            .collect();
+        let mut created = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        created.sort_by_key(|application| application.position().get());
+
+        assert_eq!(
+            created
+                .iter()
+                .map(|application| application.position().get())
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert_ne!(created[0].id(), created[1].id());
+        let database = Database::open(&path).unwrap();
+        assert_eq!(database.list_applications().unwrap(), created);
+        drop(database);
+        remove_database_files(&path);
     }
 
     #[test]
@@ -313,5 +490,15 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap()
+    }
+
+    fn temporary_database_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("smartspace-applications-{}.sqlite", Uuid::new_v4()))
+    }
+
+    fn remove_database_files(path: &std::path::Path) {
+        fs::remove_file(path).unwrap();
+        let _ = fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = fs::remove_file(path.with_extension("sqlite-shm"));
     }
 }
