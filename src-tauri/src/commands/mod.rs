@@ -45,7 +45,8 @@ impl From<DatabaseRuntimeError> for CommandError {
                 | StorageError::CorruptCategoryStore { .. }
                 | StorageError::InvalidTaskStatus(_)
                 | StorageError::InvalidTaskDate(_)
-                | StorageError::CorruptTaskStore { .. },
+                | StorageError::CorruptTaskStore { .. }
+                | StorageError::CorruptApplicationStore { .. },
             ) => CommandErrorCode::DataCorrupt,
             DatabaseRuntimeError::Storage(StorageError::CategoryNotFound { .. }) => {
                 CommandErrorCode::CategoryNotFound
@@ -72,5 +73,23 @@ impl CommandError {
             code: CommandErrorCode::InvalidInput,
             message: message.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandError, CommandErrorCode};
+    use crate::storage::{DatabaseRuntimeError, StorageError};
+
+    #[test]
+    fn corrupt_application_storage_maps_to_the_shared_data_corrupt_code() {
+        let error = CommandError::from(DatabaseRuntimeError::Storage(
+            StorageError::CorruptApplicationStore {
+                reason: "test corruption",
+            },
+        ));
+
+        assert_eq!(error.code, CommandErrorCode::DataCorrupt);
+        assert_eq!(serde_json::to_value(error).unwrap()["code"], "data_corrupt");
     }
 }

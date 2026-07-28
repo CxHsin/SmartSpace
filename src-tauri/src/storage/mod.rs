@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use crate::domain::{CategoryId, DomainError};
 
+mod applications;
 mod categories;
 mod runtime;
 mod tasks;
@@ -69,6 +70,8 @@ pub enum StorageError {
     InvalidTaskOrder,
     #[error("task storage invariant violated: {reason}")]
     CorruptTaskStore { reason: &'static str },
+    #[error("application storage invariant violated: {reason}")]
+    CorruptApplicationStore { reason: &'static str },
 }
 
 #[derive(Debug, Clone, Copy)]
